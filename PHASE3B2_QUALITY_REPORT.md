@@ -177,23 +177,68 @@ merged or deleted; only the classification boundary moved.
   while missing only the surface-similarity signal is now
   `probable_duplicate`, not `certain_duplicate`.
 
-**Known limitation of this review**: this session has no reachable
-PostgreSQL/PostGIS instance (no local service on the configured
-`DATABASE_URL` port, no running Docker daemon) and no access to the
-isolated copy of production BDIFF data used to produce the original
-`78`/`37`/`424`/`93`/`1` counts in section F. The corrected classification
-boundary was verified with deterministic unit tests only. **The `78`
-certain / `37` probable counts in section F are therefore stale** — they
-reflect the pre-correction rule. Before any deployment, `audit-bdiff-quality
---dry-run --rules-version v1` must be re-run against the same isolated
-copy to obtain the corrected counts, which are expected to show fewer
-`certain_duplicate` and more `probable_duplicate` pairs, with the total
-candidate pair count (`633`) unchanged since candidate generation itself
-was not modified.
+**Update — real-data revalidation completed.** A fresh, verified production
+backup (`pyrorisk-20260726T164125Z.dump`, SHA-256
+`6172f5ffb82fa600d8fbd7c8b5c2523857ecefd2e8f289803993ecf55d5d55ba`) was
+restored into an isolated PostGIS container on the VPS (bound to
+`127.0.0.1` only, no public port, distinct from any pre-existing test
+container). Migration `0012` was applied there, the full SQLx test suite
+(5/5, including `quality_foundation_is_versioned_idempotent_and_non_destructive`)
+passed, and `audit-bdiff-quality` was run at commit `cbf793c` against the
+real 15,956 events through an SSH tunnel from the reviewer's already-built
+local binary — production itself was never written to.
+
+Non-classification counts matched the original report exactly:
+`repeated_coordinate_events` 12,566; `probable_centroids` 7,539;
+`human_non_combustible_events` 650; `human_missing_feature_events` 22;
+`human_difficult_events` 672; `duplicate_candidate_pairs` 633;
+`duplicate_groups` 632. Candidate generation was unaffected by the fix, as
+expected.
+
+Corrected duplicate classification breakdown (`validation.duplicate_candidate_pairs`):
+
+| Classification | Before fix | After fix | Delta |
+|---|---:|---:|---:|
+| `certain_duplicate` | 78 | **14** | -64 |
+| `probable_duplicate` | 37 | **101** | +64 |
+| `possible_duplicate` | 424 | 424 | 0 |
+| `indeterminate` | 93 | 93 | 0 |
+| `probably_distinct` | 1 | 1 | 0 |
+| Total | 633 | 633 | 0 |
+
+Exactly the 64 pairs whose evidence was strong-but-partial moved from
+`certain_duplicate` to `probable_duplicate`; nothing else changed. This is
+the expected, fully accounted-for effect of the fix.
+
+Additional isolated-environment results:
+
+- First real persistence: 12.1s. Idempotent replay: 10.3s, identical
+  logical checksum `5e1ec943ebb4843b16f782a6687554482e637a38eb569c08dcd987f477023fc0`
+  both times.
+- Rollback (`migrations/rollback/0012_bdiff_quality_foundation.down.sql`)
+  correctly refused with `refusing destructive rollback: validation quality
+  data exists` once data existed; `validation.rule_versions` and all other
+  tables remained intact afterward.
+- `fire.ignition_events` (15,956), `public.ignition_history` (15,957),
+  `raw.bdiff_records` (31,912), `staging.bdiff_events_normalized` (31,912)
+  and `public.cell_static` (920,016) were unchanged before and after the
+  full audit, persistence, replay and rollback attempt. A deterministic
+  hash of every event's id, original coordinates and cause category was
+  computed after all operations to corroborate byte-level non-mutation.
+- The pre-existing `validation` schema found empty in the restored dump
+  (owner `pyrorisk`, comment "Reproducible comparison of predictions with
+  observed incidents and validation metrics") is unrelated to phase 3B.2;
+  it holds no tables and does not collide with `0012`, which uses
+  `CREATE SCHEMA IF NOT EXISTS`.
+
+The logical checksum differs from the original report's
+`fef4adac90bacfee387ddd1da1faabc748e226216c2e79d8fea4f9462c7338de` because
+the rule parameters and `raw_signals` payload changed with the fix — this
+is expected, not an anomaly.
 
 ## M. Decision (this review)
 
-See final report delivered in chat for the authoritative status. As of this
-correction: unit-level scientific rules pass and the identified issue is
-fixed at the code level; a real-data re-run to confirm updated counts is a
-prerequisite for deployment sign-off and is not yet done.
+`78`/`37` are confirmed superseded by `14`/`101`. The scientific correction
+is verified against real production data, not just unit tests. No event
+was changed, merged, deleted, or moved. No production system was written
+to at any point in this revalidation.
