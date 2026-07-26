@@ -13,7 +13,7 @@ use tokio::{
 
 use crate::{config::Config, firms_pipeline, forecast, territory::Territory};
 
-const FORECAST_POLL_INTERVAL: Duration = Duration::from_secs(3_600);
+const FORECAST_POLL_INTERVAL: Duration = Duration::from_hours(1);
 
 pub fn spawn(
     config: Config,

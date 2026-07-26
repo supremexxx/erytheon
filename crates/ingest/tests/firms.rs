@@ -25,7 +25,7 @@ async fn loads_and_projects_the_official_fixture() {
         .expect("batch fixture should load");
 
     assert_eq!(source.id(), "firms");
-    assert_eq!(source.cadence(), Cadence::Poll(Duration::from_secs(1800)));
+    assert_eq!(source.cadence(), Cadence::Poll(Duration::from_mins(30)));
     assert_eq!(observations.len(), 5);
     assert_eq!(batch.received(), 5);
     assert_eq!(batch.accepted(), 5);
