@@ -67,6 +67,21 @@ Thresholds for v1:
 - probable: `0.75`
 - possible: `0.55`
 
+Because `fire.ignition_events` already deduplicates on `(source_id,
+source_record_id)` during phase 3B.1 ingestion, no two rows reaching this
+audit can ever share a source identity. `certain_duplicate` therefore cannot
+rest on a weighted score threshold alone: the score is clamped to `[0, 1]`,
+so several different subsets of signals (for example municipality, distance
+and time, without a matching H3 cell or a similar surface) can all saturate
+to the same value as a pair with full evidence. `certain_duplicate` requires
+both `score >= 0.92` and simultaneous convergence of every strong signal:
+same municipality, same H3, same cause, distance `<= 25m`, time
+`<= 30 minutes`, and surface relative difference `<= 5%`, with no centroid
+ambiguity. Any pair missing one of these signals is at most
+`probable_duplicate`. This still expresses circumstantial certainty about a
+duplicate *report*, not a proven identity match — no identity match is
+structurally possible at this stage.
+
 No event is merged, deleted or deactivated.
 
 ## Rollback

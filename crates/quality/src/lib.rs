@@ -261,7 +261,22 @@ pub fn assess_duplicate(
         if centroid_ambiguous { -0.10 } else { 0.0 },
     );
     let score = (0.20 + contributions.values().sum::<f64>()).clamp(0.0, 1.0);
-    let classification = if score >= 0.92 && !centroid_ambiguous {
+    // `fire.ignition_events` already deduplicates on (source_id, source_record_id)
+    // (phase 3B.1), so two distinct rows here can never share a source identity.
+    // "certain" therefore cannot rest on a weighted score alone: because the score
+    // saturates at 1.0, several different subsets of signals (e.g. municipality +
+    // distance + time + cause, without a matching H3 or surface) all reach the same
+    // clamped value. Requiring every strong signal simultaneously, on top of the
+    // score threshold, avoids classifying merely-coincidental nearby events as
+    // certain.
+    let full_evidence_convergence = !centroid_ambiguous
+        && same_municipality
+        && same_h3
+        && same_cause
+        && distance_m <= 25.0
+        && time_minutes <= 30
+        && surface_relative_difference <= 0.05;
+    let classification = if score >= 0.92 && full_evidence_convergence {
         "certain_duplicate"
     } else if score >= 0.75 && !centroid_ambiguous {
         "probable_duplicate"
@@ -282,11 +297,14 @@ pub fn assess_duplicate(
             "same_h3": same_h3,
             "same_cause": same_cause,
             "surface_relative_difference": surface_relative_difference,
-            "centroid_ambiguity": centroid_ambiguous
+            "centroid_ambiguity": centroid_ambiguous,
+            "full_evidence_convergence": full_evidence_convergence
         }),
         contributions,
         justification: format!(
-            "{classification}: deterministic weighted evidence; day/H3 alone is insufficient"
+            "{classification}: deterministic weighted evidence; day/H3 alone is insufficient; \
+             certain requires full non-ambiguous convergence of municipality, H3, distance, \
+             time, cause and surface, not a score threshold alone"
         ),
     }
 }
@@ -462,6 +480,29 @@ mod tests {
             "probable_duplicate" | "certain_duplicate"
         ));
         assert!(result.contributions.contains_key("spatial_distance"));
+    }
+
+    #[test]
+    fn saturated_score_without_full_convergence_is_not_certain() {
+        // Distance, time, municipality, cause and H3 are all maximally strong, but
+        // the surface only partially matches. Before the fix, the weighted score
+        // saturates to the same clamped 1.0 as a fully convergent pair and both
+        // were classified `certain_duplicate` even though this pair carries
+        // strictly weaker evidence. Two distinct real-world fires can plausibly
+        // share every signal except surface, so this must stay `probable_duplicate`.
+        let left = event("a", 10, 43.0, 1.0);
+        let right = event("b", 10, 43.00001, 1.3);
+        let geography = GeographicAssessment {
+            category: "precision_undocumented".to_owned(),
+            confidence: 0.5,
+            reasons: Vec::new(),
+        };
+        let result = assess_duplicate(&left, &right, &geography, &geography);
+        assert!(
+            (result.score - 1.0).abs() < f64::EPSILON,
+            "score should saturate"
+        );
+        assert_eq!(result.classification, "probable_duplicate");
     }
 
     #[test]

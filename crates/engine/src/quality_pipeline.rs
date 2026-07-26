@@ -516,7 +516,17 @@ fn rule_versions() -> Vec<QualityRuleVersion> {
             DUPLICATE_RULE_ID,
             "duplicate_detection",
             "Deterministic explainable pair scoring without automatic merging.",
-            json!({"candidate_window_hours": 24, "certain": 0.92, "probable": 0.75, "possible": 0.55}),
+            json!({
+                "candidate_window_hours": 24,
+                "certain": 0.92,
+                "probable": 0.75,
+                "possible": 0.55,
+                "certain_requires_full_evidence_convergence": true,
+                "certain_convergence_signals": [
+                    "same_municipality", "same_h3", "same_cause",
+                    "distance_m<=25", "time_minutes<=30", "surface_relative_difference<=0.05"
+                ]
+            }),
         ),
     ]
     .into_iter()

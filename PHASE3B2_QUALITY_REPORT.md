@@ -137,6 +137,63 @@ backup production, verify the exact commit, apply `0012`, run dry-run first,
 compare the checksum and all cohort counts, then separately authorize persisted
 validation results. No quality scheduler should be created.
 
-## K. Decision
+## K. Decision (original)
 
 PHASE 3B.2 READY FOR REVIEW
+
+## L. Review correction (post-review, same commit lineage, not yet deployed)
+
+A dedicated scientific review of the `78` pairs originally classified
+`certain_duplicate` found that `assess_duplicate` never checks source
+identity — which is expected, since `fire.ignition_events` already
+deduplicates on `(source_id, source_record_id)` during phase 3B.1 ingestion,
+so no two distinct rows here can ever share one. The concern is that the
+weighted score is clamped to `[0, 1]`: several different subsets of signals
+(for example municipality + distance + time + cause, without a matching H3
+cell or a close surface) all saturate to the same score as a pair with full
+convergent evidence, so `certain_duplicate` could be reached from partial,
+circumstantial evidence alone.
+
+**Correction applied** (`crates/quality/src/lib.rs`, `assess_duplicate`):
+`certain_duplicate` now requires `score >= 0.92` **and** simultaneous
+convergence of every strong signal — same municipality, same H3, same
+cause, distance `<= 25m`, time `<= 30 minutes`, surface relative difference
+`<= 5%`, and no centroid ambiguity. A pair missing any one of these signals
+is demoted to at most `probable_duplicate`, per the instruction to retreat
+to a weaker category rather than overclaim certainty. No event was changed,
+merged or deleted; only the classification boundary moved.
+
+- `raw_signals` now also records `full_evidence_convergence` for
+  auditability.
+- Rule `erytheon_duplicate_rules_v1` parameters were updated in code to
+  document `certain_requires_full_evidence_convergence` and the exact
+  signal list; since no production instance has ever persisted this rule
+  version (phase 3B.2 has not been deployed), this is a pre-deployment
+  correction, not a silent change of an active, deployed rule version —
+  `ensure_quality_rule` would reject any attempt to change an already
+  persisted rule's checksum under the same `logical_id`.
+- Added `crates/quality/src/lib.rs::saturated_score_without_full_convergence_is_not_certain`,
+  a unit test proving a pair that saturates the clamped score to `1.0`
+  while missing only the surface-similarity signal is now
+  `probable_duplicate`, not `certain_duplicate`.
+
+**Known limitation of this review**: this session has no reachable
+PostgreSQL/PostGIS instance (no local service on the configured
+`DATABASE_URL` port, no running Docker daemon) and no access to the
+isolated copy of production BDIFF data used to produce the original
+`78`/`37`/`424`/`93`/`1` counts in section F. The corrected classification
+boundary was verified with deterministic unit tests only. **The `78`
+certain / `37` probable counts in section F are therefore stale** — they
+reflect the pre-correction rule. Before any deployment, `audit-bdiff-quality
+--dry-run --rules-version v1` must be re-run against the same isolated
+copy to obtain the corrected counts, which are expected to show fewer
+`certain_duplicate` and more `probable_duplicate` pairs, with the total
+candidate pair count (`633`) unchanged since candidate generation itself
+was not modified.
+
+## M. Decision (this review)
+
+See final report delivered in chat for the authoritative status. As of this
+correction: unit-level scientific rules pass and the identified issue is
+fixed at the code level; a real-data re-run to confirm updated counts is a
+prerequisite for deployment sign-off and is not yet done.
