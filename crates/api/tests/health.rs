@@ -43,7 +43,9 @@ async fn dashboard_and_health_are_served() {
     let dashboard_body = to_bytes(dashboard.into_body(), 256_000)
         .await
         .expect("dashboard body should be readable");
-    assert!(String::from_utf8_lossy(&dashboard_body).contains("PyroRisk — Centre opérationnel"));
+    assert!(
+        String::from_utf8_lossy(&dashboard_body).contains("ERYTHEON — Prévision des incendies")
+    );
 
     let config_response = app
         .clone()
