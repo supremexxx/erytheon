@@ -4,7 +4,9 @@ use chrono::{DateTime, NaiveDate, Utc};
 use grid::{BoundingBox, H3Grid};
 use ingest::{FetchCtx, firms::FirmsSource};
 use sqlx::PgPool;
-use store::{FirmsImportStart, FirmsPersistenceResult, FirmsTerminalState, Store};
+use store::{FirmsImportIds, FirmsImportStart, FirmsPersistenceResult, FirmsTerminalState, Store};
+
+type SourceStatusRow = (DateTime<Utc>, Option<DateTime<Utc>>, i64, Option<String>);
 
 #[tokio::test]
 async fn firms_ingestion_tracks_batches_and_preserves_v1_deduplication() {
@@ -22,21 +24,8 @@ async fn firms_ingestion_tracks_batches_and_preserves_v1_deduplication() {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("verification connection");
-    let source_count = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM reference.data_sources WHERE code = 'nasa_firms'",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("source should be queryable");
-    assert_eq!(source_count, 1);
-    let source_status_before =
-        sqlx::query_as::<_, (DateTime<Utc>, Option<DateTime<Utc>>, i64, Option<String>)>(
-            "SELECT last_run, last_success, observation_count, recent_error
-         FROM public.source_status WHERE id = 'firms'",
-        )
-        .fetch_optional(&pool)
-        .await
-        .expect("source status should be queryable");
+    assert_source_registered(&pool).await;
+    let source_status_before = source_status(&pool).await;
 
     let fetch = fixture_fetch().await;
     let keys = fetch
@@ -46,78 +35,11 @@ async fn firms_ingestion_tracks_batches_and_preserves_v1_deduplication() {
         .collect::<Vec<_>>();
     let public_ids_before = public_ids(&pool, &keys).await;
 
-    let first = store
-        .begin_firms_import(&start("integration_first"))
-        .await
-        .expect("first batch should start");
-    let mut rows_with_duplicate = fetch.rows.clone();
-    rows_with_duplicate.push(fetch.rows[0].clone());
-    let first_result = store
-        .persist_firms_import(&first, &rows_with_duplicate, Utc::now())
-        .await
-        .expect("first batch should persist atomically");
-    assert_eq!(first_result.received, 6);
-    assert_eq!(first_result.raw_inserted, 5);
-    assert_eq!(first_result.duplicates_ignored, 1);
-    store
-        .finish_firms_import(&first, FirmsTerminalState::Succeeded, first_result, None)
-        .await
-        .expect("first batch should finish");
-
+    let (first, first_result) = run_first_batch(&store, &fetch).await;
     let public_after_first = public_ids(&pool, &keys).await;
-    let second = store
-        .begin_firms_import(&start("integration_second"))
-        .await
-        .expect("second batch should start");
-    let second_result = store
-        .persist_firms_import(&second, &fetch.rows, Utc::now())
-        .await
-        .expect("second batch should preserve raw history");
-    assert_eq!(second_result.raw_inserted, 5);
-    assert_eq!(second_result.public_inserted, 0);
-    assert_eq!(public_ids(&pool, &keys).await, public_after_first);
-    store
-        .finish_firms_import(&second, FirmsTerminalState::Succeeded, second_result, None)
-        .await
-        .expect("second batch should finish");
-
-    let partial = store
-        .begin_firms_import(&start("integration_partial"))
-        .await
-        .expect("partial batch should start");
-    let mut rejected = fetch.rows[0].clone();
-    rejected.source_record_id = "rejected:integration".to_owned();
-    rejected.observation = None;
-    rejected.observed_at = None;
-    rejected.parsing_error = Some("deterministic test rejection".to_owned());
-    let partial_result = store
-        .persist_firms_import(&partial, &[fetch.rows[0].clone(), rejected], Utc::now())
-        .await
-        .expect("partial batch should retain accepted and rejected rows");
-    assert_eq!(partial_result.rejected, 1);
-    store
-        .finish_firms_import(
-            &partial,
-            FirmsTerminalState::PartiallySucceeded,
-            partial_result,
-            Some("One or more FIRMS rows could not be normalized"),
-        )
-        .await
-        .expect("partial batch should finish");
-
-    let failed = store
-        .begin_firms_import(&start("integration_failed"))
-        .await
-        .expect("failed batch should start");
-    store
-        .finish_firms_import(
-            &failed,
-            FirmsTerminalState::Failed,
-            FirmsPersistenceResult::default(),
-            Some("deterministic test failure"),
-        )
-        .await
-        .expect("failed batch should finish");
+    let second = run_second_batch(&store, &fetch, &pool, &keys, &public_after_first).await;
+    let (partial, partial_result) = run_partial_batch(&store, &fetch).await;
+    let failed = run_failed_batch(&store).await;
 
     assert_tracking(&pool, &first.batch_id, "succeeded", first_result).await;
     assert_tracking(
@@ -144,6 +66,122 @@ async fn firms_ingestion_tracks_batches_and_preserves_v1_deduplication() {
         source_status_before,
     )
     .await;
+}
+
+async fn assert_source_registered(pool: &PgPool) {
+    let source_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM reference.data_sources WHERE code = 'nasa_firms'",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("source should be queryable");
+    assert_eq!(source_count, 1);
+}
+
+async fn source_status(pool: &PgPool) -> Option<SourceStatusRow> {
+    sqlx::query_as::<_, SourceStatusRow>(
+        "SELECT last_run, last_success, observation_count, recent_error
+         FROM public.source_status WHERE id = 'firms'",
+    )
+    .fetch_optional(pool)
+    .await
+    .expect("source status should be queryable")
+}
+
+async fn run_first_batch(
+    store: &Store,
+    fetch: &ingest::firms::FirmsFetch,
+) -> (FirmsImportIds, FirmsPersistenceResult) {
+    let first = store
+        .begin_firms_import(&start("integration_first"))
+        .await
+        .expect("first batch should start");
+    let mut rows_with_duplicate = fetch.rows.clone();
+    rows_with_duplicate.push(fetch.rows[0].clone());
+    let first_result = store
+        .persist_firms_import(&first, &rows_with_duplicate, Utc::now())
+        .await
+        .expect("first batch should persist atomically");
+    assert_eq!(first_result.received, 6);
+    assert_eq!(first_result.raw_inserted, 5);
+    assert_eq!(first_result.duplicates_ignored, 1);
+    store
+        .finish_firms_import(&first, FirmsTerminalState::Succeeded, first_result, None)
+        .await
+        .expect("first batch should finish");
+    (first, first_result)
+}
+
+async fn run_second_batch(
+    store: &Store,
+    fetch: &ingest::firms::FirmsFetch,
+    pool: &PgPool,
+    keys: &[String],
+    public_after_first: &[i64],
+) -> FirmsImportIds {
+    let second = store
+        .begin_firms_import(&start("integration_second"))
+        .await
+        .expect("second batch should start");
+    let second_result = store
+        .persist_firms_import(&second, &fetch.rows, Utc::now())
+        .await
+        .expect("second batch should preserve raw history");
+    assert_eq!(second_result.raw_inserted, 5);
+    assert_eq!(second_result.public_inserted, 0);
+    assert_eq!(public_ids(pool, keys).await, public_after_first);
+    store
+        .finish_firms_import(&second, FirmsTerminalState::Succeeded, second_result, None)
+        .await
+        .expect("second batch should finish");
+    second
+}
+
+async fn run_partial_batch(
+    store: &Store,
+    fetch: &ingest::firms::FirmsFetch,
+) -> (FirmsImportIds, FirmsPersistenceResult) {
+    let partial = store
+        .begin_firms_import(&start("integration_partial"))
+        .await
+        .expect("partial batch should start");
+    let mut rejected = fetch.rows[0].clone();
+    "rejected:integration".clone_into(&mut rejected.source_record_id);
+    rejected.observation = None;
+    rejected.observed_at = None;
+    rejected.parsing_error = Some("deterministic test rejection".to_owned());
+    let partial_result = store
+        .persist_firms_import(&partial, &[fetch.rows[0].clone(), rejected], Utc::now())
+        .await
+        .expect("partial batch should retain accepted and rejected rows");
+    assert_eq!(partial_result.rejected, 1);
+    store
+        .finish_firms_import(
+            &partial,
+            FirmsTerminalState::PartiallySucceeded,
+            partial_result,
+            Some("One or more FIRMS rows could not be normalized"),
+        )
+        .await
+        .expect("partial batch should finish");
+    (partial, partial_result)
+}
+
+async fn run_failed_batch(store: &Store) -> FirmsImportIds {
+    let failed = store
+        .begin_firms_import(&start("integration_failed"))
+        .await
+        .expect("failed batch should start");
+    store
+        .finish_firms_import(
+            &failed,
+            FirmsTerminalState::Failed,
+            FirmsPersistenceResult::default(),
+            Some("deterministic test failure"),
+        )
+        .await
+        .expect("failed batch should finish");
+    failed
 }
 
 async fn fixture_fetch() -> ingest::firms::FirmsFetch {
@@ -242,7 +280,7 @@ async fn assert_atomic_failure(store: &Store, pool: &PgPool, row: &ingest::firms
         .fetch_one(pool)
         .await
         .expect("raw count");
-    let invalid_ids = store::FirmsImportIds {
+    let invalid_ids = FirmsImportIds {
         batch_id: "00000000-0000-4000-8000-000000000bad".to_owned(),
         pipeline_run_id: "00000000-0000-4000-8000-000000000bad".to_owned(),
     };
@@ -261,10 +299,10 @@ async fn assert_atomic_failure(store: &Store, pool: &PgPool, row: &ingest::firms
 
 async fn cleanup(
     pool: &PgPool,
-    imports: &[store::FirmsImportIds],
+    imports: &[FirmsImportIds],
     public_before: &[i64],
     public_after_first: &[i64],
-    source_status_before: Option<(DateTime<Utc>, Option<DateTime<Utc>>, i64, Option<String>)>,
+    source_status_before: Option<SourceStatusRow>,
 ) {
     let batch_ids = imports
         .iter()

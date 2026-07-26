@@ -174,7 +174,7 @@ async fn assert_rejected_rows(pool: &PgPool, batch_id: &str) {
     .await
     .expect("rejected latitude");
     assert_eq!(latitude.0, "rejected");
-    assert_eq!(latitude.1, 120.0);
+    assert!((latitude.1 - 120.0).abs() < f64::EPSILON);
     assert!(latitude.2);
     assert!(
         latitude
