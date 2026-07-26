@@ -1,0 +1,20 @@
+[
+  {"scenario":"human_precise","cause_category":"human_known","geography":"precision_undocumented","combustible":true},
+  {"scenario":"human_repeated_coordinate","cause_category":"human_known","coordinate_group_size":2},
+  {"scenario":"municipality_single_coordinate","cause_category":"human_known","coordinate_group_size":8,"years":3},
+  {"scenario":"probable_centroid","official_reference":false,"expected":"probable_centroid"},
+  {"scenario":"same_day_same_h3_distinct","hours_apart":19,"surface_ratio":20,"expected":"probably_distinct_or_indeterminate"},
+  {"scenario":"probable_duplicate","minutes_apart":10,"distance_m":5,"same_cause":true},
+  {"scenario":"certain_duplicate_simulated","minutes_apart":0,"distance_m":0,"same_cause":true,"same_surface":true},
+  {"scenario":"unknown_cause","cause_category":"unknown","expected":"unknown_cause_cohort"},
+  {"scenario":"natural_cause","cause_category":"natural_known","expected":"eligible_natural_cohort"},
+  {"scenario":"indeterminate_cause","cause_category":"indeterminate","expected":"indeterminate_cause_cohort"},
+  {"scenario":"combustible_original","combustible":true},
+  {"scenario":"non_combustible_original","combustible":false},
+  {"scenario":"missing_cell_static","cell_features_present":false},
+  {"scenario":"near_combustible","combustible":false,"nearest_ring":1},
+  {"scenario":"rounded_coordinates","latitude":43.12,"longitude":2.1},
+  {"scenario":"different_surfaces","left_surface_ha":0.1,"right_surface_ha":20.0},
+  {"scenario":"distant_times","hours_apart":20},
+  {"scenario":"ambiguous_chain","relations":["A-B strong","B-C weak","A-C incompatible"],"expected":"no_transitive_merge"}
+]

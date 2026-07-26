@@ -647,6 +647,7 @@ dependencies = [
  "geojson",
  "grid",
  "ingest",
+ "quality",
  "reqwest",
  "risk",
  "serde",
@@ -1944,6 +1945,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "quality"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "grid",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2831,6 +2843,7 @@ dependencies = [
  "fwi",
  "grid",
  "ingest",
+ "quality",
  "reqwest",
  "risk",
  "serde_json",

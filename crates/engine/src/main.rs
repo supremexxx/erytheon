@@ -5,6 +5,7 @@ mod export;
 mod firms_pipeline;
 mod forecast;
 mod human_model;
+mod quality_pipeline;
 mod risk_pipeline;
 mod scheduler;
 mod static_layers;
@@ -93,6 +94,19 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Computes versioned BDIFF quality assessments without changing source events.
+    AuditBdiffQuality {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "v1")]
+        rules_version: String,
+        #[arg(long)]
+        year: Option<i32>,
+        #[arg(long)]
+        source_record_id: Option<String>,
+        #[arg(long)]
+        recalculate: bool,
+    },
     /// Pre-aggregates regional OSM PBF extracts into a reusable H3 cache.
     OsmAggregate {
         /// Destination newline-delimited JSON file.
@@ -166,6 +180,25 @@ async fn main() -> anyhow::Result<()> {
         Command::LoadStatic => load_static(config).await,
         Command::LoadFireHistory { source } => load_fire_history(config, source).await,
         Command::ImportBdiff { path, dry_run } => import_bdiff(config, &path, dry_run).await,
+        Command::AuditBdiffQuality {
+            dry_run,
+            rules_version,
+            year,
+            source_record_id,
+            recalculate,
+        } => {
+            quality_pipeline::audit_bdiff_quality(
+                config,
+                quality_pipeline::QualityOptions {
+                    dry_run,
+                    rules_version,
+                    year,
+                    source_record_id,
+                    recalculate,
+                },
+            )
+            .await
+        }
         Command::OsmAggregate { output } => osm_aggregate(&config, &output).await,
         Command::DataStatus => data_status(config).await,
         Command::TerritoryPlan => territory_plan(&config),

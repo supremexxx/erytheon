@@ -22,6 +22,7 @@ geo.workspace = true
 grid = { path = "../grid" }
 ingest = { path = "../ingest" }
 fwi = { path = "../fwi" }
+quality = { path = "../quality" }
 reqwest.workspace = true
 risk = { path = "../risk" }
 serde.workspace = true

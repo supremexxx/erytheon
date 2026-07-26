@@ -11,9 +11,15 @@ use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 
 mod bdiff;
 mod firms;
+mod quality;
 
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
 pub use firms::{FirmsImportIds, FirmsImportStart, FirmsPersistenceResult, FirmsTerminalState};
+pub use quality::{
+    CombustibilityAssessmentRecord, CombustibleCandidateRecord, CoordinateGroupRecord,
+    DuplicateGroupRecord, DuplicateMemberRecord, DuplicatePairRecord, GeographicAssessmentRecord,
+    LabelAssessmentRecord, QualityPersistenceBundle, QualityRuleVersion, QualitySourceEvent,
+};
 
 /// One complete daily FWI result ready for persistence.
 #[derive(Clone, Copy, Debug)]
@@ -1518,4 +1524,16 @@ pub enum StoreError {
     /// A persisted count was unexpectedly negative.
     #[error("invalid persisted non-negative count: {0}")]
     InvalidPersistedCount(i64),
+    /// A stored H3 resolution did not fit the supported range.
+    #[error("invalid persisted H3 resolution: {0}")]
+    InvalidH3Resolution(i16),
+    /// An existing immutable quality rule had different content.
+    #[error("quality rule changed without a new logical version: {0}")]
+    QualityRuleChanged(String),
+    /// A required quality rule was not registered.
+    #[error("missing quality rule id: {0}")]
+    MissingQualityRule(String),
+    /// A geographic assessment referenced an unavailable coordinate group.
+    #[error("missing persisted coordinate group")]
+    MissingCoordinateGroup,
 }
