@@ -45,6 +45,7 @@ pub enum FirmsTerminalState {
 }
 
 impl FirmsTerminalState {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Succeeded => "succeeded",
@@ -60,7 +61,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns an error when the seeded source is absent or PostgreSQL rejects the transaction.
+    /// Returns an error when the seeded source is absent or `PostgreSQL` rejects the transaction.
     pub async fn begin_firms_import(
         &self,
         start: &FirmsImportStart,
@@ -194,7 +195,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns an error when PostgreSQL rejects the final state.
+    /// Returns an error when `PostgreSQL` rejects the final state.
     pub async fn finish_firms_import(
         &self,
         ids: &FirmsImportIds,
