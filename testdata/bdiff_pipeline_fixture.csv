@@ -1,0 +1,16 @@
+external_id,occurred_at,municipality,latitude,longitude,surface_ha,cause,source_note
+fixture-malicious,2025-07-01T10:00:00Z,Nîmes,43.8367,4.3601,1.5,Malveillance,valid malicious
+fixture-private,2025-07-02T10:00:00Z,Alès,44.1254,4.0800,0.4,Involontaire (particulier),valid private
+fixture-work,2025-07-03T10:00:00Z,Avignon,43.9493,4.8055,2.0,Involontaire (travaux),valid work
+fixture-accident,2025-07-04T10:00:00Z,Orange,44.1383,4.8089,0.2,Accidentelle,valid accident
+fixture-natural,2025-07-05T10:00:00Z,Gap,44.5596,6.0790,3.1,Naturelle,valid natural
+fixture-unknown,2025-07-06T10:00:00Z,Digne-les-Bains,44.0922,6.2359,0.8,Inconnue,valid unknown
+fixture-unmapped,2025-07-07T10:00:00Z,Mende,44.5180,3.5000,0.1,Origine en cours d'étude,valid unmapped
+fixture-bad-latitude,2025-07-08T10:00:00Z,Arles,120.0,4.6278,0.1,Malveillance,rejected latitude
+fixture-bad-timestamp,not-a-date,Marseille,43.2965,5.3698,0.1,Malveillance,rejected timestamp
+fixture-bad-longitude,2025-07-10T10:00:00Z,Toulon,43.1242,250.0,0.1,Malveillance,rejected longitude
+fixture-bad-surface,2025-07-11T10:00:00Z,Nice,43.7102,7.2620,-1.0,Malveillance,rejected surface
+,2025-07-12T10:00:00Z,Cannes,43.5528,7.0174,0.1,,rejected identity and cause
+fixture-malicious,2025-07-01T10:00:00Z,Nîmes,43.8367,4.3601,1.5,Malveillance,technical duplicate
+fixture-same-place-a,2025-07-13T09:00:00Z,Montpellier,43.6108,3.8767,0.2,Accidentelle,distinct same place
+fixture-same-place-b,2025-07-13T18:00:00Z,Montpellier,43.6108,3.8767,0.3,Accidentelle,distinct same place

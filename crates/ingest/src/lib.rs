@@ -7,6 +7,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use grid::{BoundingBox, CellIndex, H3Grid};
 use serde::{Deserialize, Serialize};
 
+pub mod bdiff;
 pub mod calendar;
 pub mod corine;
 pub mod fire_history;

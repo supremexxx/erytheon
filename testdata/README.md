@@ -30,6 +30,8 @@ Source archive: <https://meteofrance.s3.sbg.io.cloud.ovh.net/data/synchro_ftp/OB
 
 `bdiff_aude.csv` contains six public fields for 94 Aude records displayed by BDIFF for 2025: five winter records plus all 89 forest-fire alerts returned for June through August. It preserves source identifier, alert time and UTC offset, municipality, public municipality-centre coordinate, surface, and grouped cause. `promethee_aude.csv` contains one legacy Aude record from 2000, paired with the OSM municipality centre because no more precise public coordinate is exposed.
 
+`bdiff_pipeline_fixture.csv` is a synthetic, deterministic Phase 3B.1 fixture. It covers the six documented cause groups, an unmapped cause, invalid coordinates, timestamp and surface, a missing identity, an intra-batch duplicate, and two distinct events sharing one date and coordinate. It contains no personal data.
+
 `corine_aude.csv` contains five CORINE Land Cover 2018 samples in the default AOI. Their polygon identifiers and three-digit classes were checked against the official CLC 2018 web map; the production path accepts the downloadable GeoTIFF. Source product: Copernicus Land Monitoring Service CLC 2018, V2020_20u1.
 
 `insee_filosofi_200m.csv` contains six complete, unchanged rows for municipality code 11069 from INSEE's official Filosofi 2019 metropolitan 200-metre CSV. Official EPSG:3035 grid identifiers and imputation flags are retained.

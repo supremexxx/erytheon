@@ -9,8 +9,10 @@ use ingest::{Observation, calendar::CalendarDay};
 use risk::{Factor, Horizon, RiskScore};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 
+mod bdiff;
 mod firms;
 
+pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
 pub use firms::{FirmsImportIds, FirmsImportStart, FirmsPersistenceResult, FirmsTerminalState};
 
 /// One complete daily FWI result ready for persistence.
@@ -1510,6 +1512,9 @@ pub enum StoreError {
     /// A source observation count could not fit the database type.
     #[error("source observation count does not fit in i64: {0}")]
     CountOverflow(usize),
+    /// A valid BDIFF staging row lacked a required normalized value.
+    #[error("valid BDIFF staging row is incomplete")]
+    InvalidBdiffNormalizedRow,
     /// A persisted count was unexpectedly negative.
     #[error("invalid persisted non-negative count: {0}")]
     InvalidPersistedCount(i64),

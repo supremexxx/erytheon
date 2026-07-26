@@ -1,4 +1,5 @@
 mod backtest;
+mod bdiff_pipeline;
 mod config;
 mod export;
 mod firms_pipeline;
@@ -83,6 +84,15 @@ enum Command {
         #[arg(long, value_enum, default_value_t = FireHistorySelection::Bdiff)]
         source: FireHistorySelection,
     },
+    /// Imports a normalized BDIFF CSV into the additive raw/staging/fire architecture.
+    ImportBdiff {
+        /// Normalized CSV file to import; the bundled fixture can be supplied explicitly.
+        #[arg(long)]
+        path: PathBuf,
+        /// Parses and summarizes the file without connecting to `PostgreSQL`.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Pre-aggregates regional OSM PBF extracts into a reusable H3 cache.
     OsmAggregate {
         /// Destination newline-delimited JSON file.
@@ -155,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Forecast => forecast(config).await,
         Command::LoadStatic => load_static(config).await,
         Command::LoadFireHistory { source } => load_fire_history(config, source).await,
+        Command::ImportBdiff { path, dry_run } => import_bdiff(config, &path, dry_run).await,
         Command::OsmAggregate { output } => osm_aggregate(&config, &output).await,
         Command::DataStatus => data_status(config).await,
         Command::TerritoryPlan => territory_plan(&config),
@@ -293,6 +304,60 @@ async fn load_fire_history(config: Config, source: FireHistorySelection) -> anyh
         cells = refresh.cells,
         feature_rows_updated = refresh.rows_updated,
         "fire-history load complete; refreshed features apply with the next complete forecast"
+    );
+    Ok(())
+}
+
+async fn import_bdiff(config: Config, path: &Path, dry_run: bool) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        path.is_file(),
+        "BDIFF file does not exist: {}",
+        path.display()
+    );
+    let grid = H3Grid::new(config.h3_resolution).context("failed to configure H3 grid")?;
+    if dry_run {
+        let document = ingest::bdiff::read_file(path, grid)
+            .await
+            .context("failed to parse BDIFF file")?;
+        let rejected = document
+            .rows
+            .iter()
+            .filter(|row| !row.normalized.is_valid())
+            .count();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "status": "dry_run",
+                "file": path.file_name().and_then(|name| name.to_str()).unwrap_or("bdiff.csv"),
+                "received": document.rows.len(),
+                "valid": document.rows.len() - rejected,
+                "rejected": rejected,
+                "h3_resolution": config.h3_resolution,
+                "pipeline_version": "v1",
+            }))?
+        );
+        return Ok(());
+    }
+
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize database")?;
+    let result = bdiff_pipeline::run(&store, path, grid).await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "batch_id": result.ids.batch_id,
+            "run_id": result.ids.pipeline_run_id,
+            "received": result.persistence.received,
+            "raw": result.persistence.raw_inserted,
+            "staging_valid": result.persistence.staging_valid,
+            "staging_rejected": result.persistence.staging_rejected,
+            "fire_created": result.persistence.fire_created,
+            "fire_already_present": result.persistence.fire_already_present,
+            "technical_duplicates": result.persistence.technical_duplicates,
+            "elapsed_seconds": result.elapsed_seconds,
+            "status": result.status.as_str(),
+        }))?
     );
     Ok(())
 }
