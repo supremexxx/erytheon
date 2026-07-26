@@ -1,0 +1,9 @@
+osm_id,feature_type,latitude,longitude,end_latitude,end_longitude,name
+way/5206135/0,road,43.2116835,2.3426552,43.2117577,2.3419579,Rue d'Isly
+way/5206140/0,road,43.2125625,2.3459189,43.2125464,2.3458168,Place Davilla
+way/5206152/0,road,43.2114803,2.3485429,43.2114822,2.3474711,Rue Arago
+way/68340638,building,43.2149563,2.3567884,,,Building
+way/68340649,building,43.2139078,2.3513964,,,Apartments
+way/68340655,building,43.2074080,2.3488189,,,Building
+node/1641805601,poi,43.2111072,2.3421204,,,Parking
+node/1643022861,poi,43.2130491,2.3536868,,,Parking

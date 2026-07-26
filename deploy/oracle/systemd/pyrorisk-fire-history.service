@@ -1,0 +1,12 @@
+[Unit]
+Description=Synchronize BDIFF history and retrain the PyroRisk human model
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pyrorisk
+Group=pyrorisk
+WorkingDirectory=/opt/pyrorisk
+ExecStart=/opt/pyrorisk/deploy/oracle/sync-fire-history.sh

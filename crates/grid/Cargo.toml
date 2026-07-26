@@ -1,0 +1,14 @@
+[package]
+name = "grid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+geo.workspace = true
+h3o.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

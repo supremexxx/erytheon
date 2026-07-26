@@ -1,0 +1,12 @@
+{$PYRORISK_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	reverse_proxy app:8080
+}

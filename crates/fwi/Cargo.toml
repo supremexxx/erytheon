@@ -1,0 +1,14 @@
+[package]
+name = "fwi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Pure Rust implementation of the Canadian Fire Weather Index System"
+readme = "README.md"
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up PyroRisk PostgreSQL to Cloudflare R2
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/pyrorisk/deploy/oracle
+ExecStart=/opt/pyrorisk/deploy/oracle/backup-r2.sh
+
+[Install]
+WantedBy=multi-user.target

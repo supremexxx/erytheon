@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh PyroRisk BDIFF history monthly
+
+[Timer]
+OnCalendar=*-*-15 04:30:00 UTC
+Persistent=true
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

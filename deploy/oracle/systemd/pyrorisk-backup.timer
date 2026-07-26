@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the PyroRisk R2 backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 UTC
+Persistent=true
+RandomizedDelaySec=15m
+Unit=pyrorisk-backup.service
+
+[Install]
+WantedBy=timers.target

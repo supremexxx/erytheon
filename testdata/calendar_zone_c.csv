@@ -1,0 +1,4 @@
+date,school_holiday,public_holiday,label
+2025-07-14,true,true,Vacances d'Été; 14 juillet
+2025-07-15,true,false,Vacances d'Été
+2025-07-16,true,false,Vacances d'Été

@@ -1,0 +1,11 @@
+[Unit]
+Description=Create a local PyroRisk PostgreSQL backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=pyrorisk
+Group=pyrorisk
+WorkingDirectory=/opt/pyrorisk
+ExecStart=/opt/pyrorisk/deploy/oracle/backup-local.sh

@@ -1,0 +1,95 @@
+name: pyrorisk
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - backend
+
+  app:
+    image: ${PYRORISK_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATA_PROFILE: ${DATA_PROFILE}
+      FIRMS_MAP_KEY: ${FIRMS_MAP_KEY}
+      FIRMS_FIXTURE_PATH: /app/testdata/firms_viirs_snpp.csv
+      METEOFRANCE_API_KEY: ${METEOFRANCE_API_KEY:-}
+      METEOFRANCE_FIXTURE_PATH: /app/testdata/meteo_france_synop.csv
+      BACKTEST_WEATHER_PATH: /data/synop
+      WEATHER_IDW_POWER: ${WEATHER_IDW_POWER}
+      OSM_PATH: ${OSM_PATH:-/data/osm/france-h3-r8.jsonl}
+      BDIFF_PATH: ${BDIFF_PATH:-/data/bdiff/france.csv}
+      PROMETHEE_PATH: ${PROMETHEE_PATH:-/data/promethee/france.csv}
+      CORINE_PATH: ${CORINE_PATH:-/data/corine/france.tif}
+      INSEE_PATH: ${INSEE_PATH:-/data/insee/filosofi_200m_france.csv}
+      CALENDAR_PATH: ${CALENDAR_PATH:-/data/calendar/france.csv}
+      TERRITORY_GEOJSON_PATH: ${TERRITORY_GEOJSON_PATH:-}
+      TERRITORY_CODES: ${TERRITORY_CODES:-}
+      TERRITORY_LABEL: ${TERRITORY_LABEL:-}
+      AOI_BBOX: ${AOI_BBOX}
+      H3_RESOLUTION: ${H3_RESOLUTION}
+      RECOMPUTE_INTERVAL_SECS: ${RECOMPUTE_INTERVAL_SECS}
+      FWI_MAX: ${FWI_MAX}
+      RISK_ALPHA: ${RISK_ALPHA}
+      RISK_BETA: ${RISK_BETA}
+      RISK_W_HIST: ${RISK_W_HIST}
+      RISK_W_WUI: ${RISK_W_WUI}
+      RISK_W_ROAD: ${RISK_W_ROAD}
+      RISK_W_AGRI: ${RISK_W_AGRI}
+      API_BIND: 0.0.0.0:8080
+      RUST_LOG: ${RUST_LOG}
+    volumes:
+      - ../../data:/data:ro
+      - app-output:/app/out
+    expose:
+      - "8080"
+    networks:
+      - backend
+      - frontend
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      PYRORISK_DOMAIN: ${PYRORISK_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - frontend
+
+volumes:
+  postgres-data:
+  app-output:
+  caddy-data:
+  caddy-config:
+
+networks:
+  backend:
+    internal: true
+  frontend:
