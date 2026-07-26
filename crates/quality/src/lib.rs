@@ -190,30 +190,16 @@ pub struct DuplicateAssessment {
     pub justification: String,
 }
 
-#[must_use]
-pub fn assess_duplicate(
-    left: &QualityEvent,
-    right: &QualityEvent,
-    left_geography: &GeographicAssessment,
-    right_geography: &GeographicAssessment,
-) -> DuplicateAssessment {
-    let time_minutes = (right.occurred_at - left.occurred_at)
-        .num_minutes()
-        .unsigned_abs();
-    let distance_m = haversine_m(
-        left.latitude,
-        left.longitude,
-        right.latitude,
-        right.longitude,
-    );
-    let same_municipality = normalized(&left.municipality) == normalized(&right.municipality);
-    let same_cause = left.cause_category == right.cause_category
-        && left.cause_subcategory == right.cause_subcategory;
-    let surface_relative_difference = relative_difference(left.surface_ha, right.surface_ha);
-    let same_h3 = left.h3 == right.h3;
-    let centroid_ambiguous = left_geography.category.contains("centroid")
-        || right_geography.category.contains("centroid");
-
+#[allow(clippy::fn_params_excessive_bools, clippy::too_many_arguments)]
+fn duplicate_contributions(
+    same_municipality: bool,
+    same_h3: bool,
+    distance_m: f64,
+    time_minutes: u64,
+    same_cause: bool,
+    surface_relative_difference: f64,
+    centroid_ambiguous: bool,
+) -> BTreeMap<String, f64> {
     let mut contributions = BTreeMap::new();
     contributions.insert(
         "same_municipality".to_owned(),
@@ -259,6 +245,42 @@ pub fn assess_duplicate(
     contributions.insert(
         "centroid_ambiguity".to_owned(),
         if centroid_ambiguous { -0.10 } else { 0.0 },
+    );
+    contributions
+}
+
+#[must_use]
+pub fn assess_duplicate(
+    left: &QualityEvent,
+    right: &QualityEvent,
+    left_geography: &GeographicAssessment,
+    right_geography: &GeographicAssessment,
+) -> DuplicateAssessment {
+    let time_minutes = (right.occurred_at - left.occurred_at)
+        .num_minutes()
+        .unsigned_abs();
+    let distance_m = haversine_m(
+        left.latitude,
+        left.longitude,
+        right.latitude,
+        right.longitude,
+    );
+    let same_municipality = normalized(&left.municipality) == normalized(&right.municipality);
+    let same_cause = left.cause_category == right.cause_category
+        && left.cause_subcategory == right.cause_subcategory;
+    let surface_relative_difference = relative_difference(left.surface_ha, right.surface_ha);
+    let same_h3 = left.h3 == right.h3;
+    let centroid_ambiguous = left_geography.category.contains("centroid")
+        || right_geography.category.contains("centroid");
+
+    let contributions = duplicate_contributions(
+        same_municipality,
+        same_h3,
+        distance_m,
+        time_minutes,
+        same_cause,
+        surface_relative_difference,
+        centroid_ambiguous,
     );
     let score = (0.20 + contributions.values().sum::<f64>()).clamp(0.0, 1.0);
     // `fire.ignition_events` already deduplicates on (source_id, source_record_id)
