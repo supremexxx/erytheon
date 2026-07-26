@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Cadence, FetchCtx, Observation, ObservationKind, Source, SourceError};
 
 const API_URL: &str = "https://public-api.meteofrance.fr/public/DPObs/v1/synop?format=csv";
-const POLL_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const POLL_INTERVAL: Duration = Duration::from_hours(1);
 const KELVIN_OFFSET: f64 = 273.15;
 const METRES_PER_SECOND_TO_KILOMETRES_PER_HOUR: f64 = 3.6;
 

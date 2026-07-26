@@ -12,7 +12,7 @@ use crate::{Cadence, FetchCtx, Observation, ObservationKind, Source, SourceError
 const API_BASE_URL: &str = "https://firms.modaps.eosdis.nasa.gov/api/area/csv";
 const PRODUCT: &str = "VIIRS_SNPP_NRT";
 const MAX_API_DAY_RANGE: u16 = 5;
-const POLL_INTERVAL: Duration = Duration::from_secs(30 * 60);
+const POLL_INTERVAL: Duration = Duration::from_mins(30);
 
 /// One raw FIRMS row and its optional normalized V1 observation.
 #[derive(Clone, Debug)]
