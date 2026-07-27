@@ -16,6 +16,7 @@ axum.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 clap.workspace = true
+dataset = { path = "../dataset" }
 dotenvy.workspace = true
 geojson.workspace = true
 geo.workspace = true

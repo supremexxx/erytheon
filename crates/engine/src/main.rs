@@ -1,6 +1,7 @@
 mod backtest;
 mod bdiff_pipeline;
 mod config;
+mod dataset_pipeline;
 mod export;
 mod firms_pipeline;
 mod forecast;
@@ -107,6 +108,36 @@ enum Command {
         #[arg(long)]
         recalculate: bool,
     },
+    /// Registers the current `cell_static` bundle as a versioned feature snapshot.
+    RegisterFeatureSnapshot {
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Builds the versioned historical calendar (public holidays are exact;
+    /// school holidays stay unavailable without a verified source).
+    BuildHistoricalCalendar {
+        #[arg(long, default_value_t = 2020)]
+        from_year: i32,
+        #[arg(long, default_value_t = 2026)]
+        to_year: i32,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Builds a pilot human-ignition dataset (strict and inclusive variants).
+    /// Not the final scientific dataset; see `PHASE3B3_DATASET_FOUNDATION_REPORT.md`.
+    BuildHumanDataset {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value_t = 2_026_071)]
+        seed: i64,
+        #[arg(long, default_value_t = 25)]
+        negatives_per_split_year: usize,
+    },
+    /// Prints read-only statistics for an existing dataset version.
+    InspectDataset {
+        #[arg(long)]
+        dataset_version_id: String,
+    },
     /// Pre-aggregates regional OSM PBF extracts into a reusable H3 cache.
     OsmAggregate {
         /// Destination newline-delimited JSON file.
@@ -198,6 +229,46 @@ async fn main() -> anyhow::Result<()> {
                 },
             )
             .await
+        }
+        Command::RegisterFeatureSnapshot { dry_run } => {
+            dataset_pipeline::register_feature_snapshot(
+                config,
+                dataset_pipeline::SnapshotOptions { dry_run },
+            )
+            .await
+        }
+        Command::BuildHistoricalCalendar {
+            from_year,
+            to_year,
+            dry_run,
+        } => {
+            dataset_pipeline::build_historical_calendar(
+                config,
+                dataset_pipeline::CalendarOptions {
+                    from_year,
+                    to_year,
+                    dry_run,
+                },
+            )
+            .await
+        }
+        Command::BuildHumanDataset {
+            dry_run,
+            seed,
+            negatives_per_split_year,
+        } => {
+            dataset_pipeline::build_human_dataset(
+                config,
+                dataset_pipeline::DatasetBuildOptions {
+                    dry_run,
+                    seed,
+                    negatives_per_split_year,
+                },
+            )
+            .await
+        }
+        Command::InspectDataset { dataset_version_id } => {
+            inspect_dataset(config, &dataset_version_id).await
         }
         Command::OsmAggregate { output } => osm_aggregate(&config, &output).await,
         Command::DataStatus => data_status(config).await,
@@ -643,6 +714,32 @@ async fn load_static(config: Config) -> anyhow::Result<()> {
         let cells = context.grid.cells_for_bbox(context.aoi)?;
         let _summary = risk_pipeline::recompute_latest_risk(&store, &model, &cells, None).await?;
     }
+    Ok(())
+}
+
+async fn inspect_dataset(config: Config, dataset_version_id: &str) -> anyhow::Result<()> {
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize database")?;
+    let summary = store
+        .dataset_version_summary(dataset_version_id)
+        .await
+        .context("failed to load dataset version summary")?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "logical_id": summary.logical_id,
+            "variant": summary.variant,
+            "status": summary.status,
+            "row_count": summary.row_count,
+            "positive_count": summary.positive_count,
+            "negative_count": summary.negative_count,
+            "exclusion_count": summary.exclusion_count,
+            "checksum": summary.checksum,
+            "created_at": summary.created_at,
+            "finalized_at": summary.finalized_at,
+        }))?
+    );
     Ok(())
 }
 

@@ -10,10 +10,16 @@ use risk::{Factor, Horizon, RiskScore};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 
 mod bdiff;
+mod dataset;
 mod firms;
 mod quality;
 
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
+pub use dataset::{
+    CalendarRuleVersion, DatasetBuildCounts, DatasetEventLinkRecord, DatasetExclusionRecord,
+    DatasetRowRecord, DatasetVersionSpec, DatasetVersionSummary, FeatureSnapshotSpec,
+    HistoricalCalendarDayRecord, HumanDatasetCandidateEvent, dataset_row_count,
+};
 pub use firms::{FirmsImportIds, FirmsImportStart, FirmsPersistenceResult, FirmsTerminalState};
 pub use quality::{
     CombustibilityAssessmentRecord, CombustibleCandidateRecord, CoordinateGroupRecord,
@@ -1536,4 +1542,7 @@ pub enum StoreError {
     /// A geographic assessment referenced an unavailable coordinate group.
     #[error("missing persisted coordinate group")]
     MissingCoordinateGroup,
+    /// An existing immutable calendar rule had different content.
+    #[error("calendar rule changed without a new logical version: {0}")]
+    CalendarRuleChanged(String),
 }
