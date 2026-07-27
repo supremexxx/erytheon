@@ -239,7 +239,26 @@ pub struct DatasetBuildOptions {
     pub negatives_per_split_year: usize,
 }
 
-const GOOD_GEOGRAPHIC_CATEGORIES: &[&str] = &["precise_reported", "estimated_reported"];
+/// Geographic categories flagged as low-confidence for the strict variant.
+/// `quality::assess_geography` (see `crates/quality/src/lib.rs`) never
+/// actually emits `precise_reported`/`estimated_reported` in this dataset —
+/// those are aspirational categories from the phase 3A specification with
+/// no assignment path today. `precision_undocumented` is the ceiling of
+/// quality currently achievable for real reported coordinates (see
+/// `BDIFF_QUALITY.md`) and must not be treated as low confidence; only the
+/// two genuinely suspect categories are excluded from strict.
+const LOW_CONFIDENCE_GEOGRAPHIC_CATEGORIES: &[&str] = &[
+    "municipality_centroid_probable",
+    "rounded_coordinate_probable",
+];
+
+/// Whether `category` should exclude a positive from the strict variant.
+/// Pulled out of `build_human_dataset` so the real, currently-assigned
+/// categories (`municipality_centroid_probable`, `precision_undocumented`,
+/// `rounded_coordinate_probable`) can be regression-tested directly.
+fn is_low_confidence_geographic_category(category: &str) -> bool {
+    LOW_CONFIDENCE_GEOGRAPHIC_CATEGORIES.contains(&category)
+}
 
 /// Builds a pilot `erytheon_human_ignition_cell_day_v1` dataset (strict
 /// and inclusive variants) over 2020-2026. Positives come from
@@ -314,7 +333,7 @@ pub async fn build_human_dataset(
         let features_present = representative.cell_features_present;
         let low_geo_confidence = eligible
             .iter()
-            .any(|event| !GOOD_GEOGRAPHIC_CATEGORIES.contains(&event.geographic_category.as_str()));
+            .any(|event| is_low_confidence_geographic_category(&event.geographic_category));
         let accidental = eligible
             .iter()
             .any(|event| event.requires_accidental_sensitivity_analysis);
@@ -374,10 +393,14 @@ pub async fn build_human_dataset(
         if strict_ok {
             strict_rows.push(row);
         } else {
-            let reason = if combustible != Some(true) {
-                dataset::exclusions::ExclusionReason::NonCombustibleCell
-            } else if !features_present {
+            // Check missing_features first: `combustible == None` also
+            // indicates missing features, so this must be checked before
+            // the non-combustible branch, or a cell with no cell_static
+            // row at all would be misclassified as non_combustible_cell.
+            let reason = if !features_present {
                 dataset::exclusions::ExclusionReason::MissingFeatures
+            } else if combustible != Some(true) {
+                dataset::exclusions::ExclusionReason::NonCombustibleCell
             } else {
                 dataset::exclusions::ExclusionReason::InsufficientGeographicQuality
             };
@@ -501,10 +524,10 @@ pub async fn build_human_dataset(
             author_or_pipeline: "engine::dataset_pipeline".to_owned(),
             notes: Some("pilot_only".to_owned()),
         };
-        let dataset_version_id = store
-            .create_dataset_version(&spec)
+        let (dataset_version_id, reused_existing_version) = store
+            .get_or_create_dataset_version(&spec)
             .await
-            .context("failed to create dataset version")?;
+            .context("failed to get or create dataset version")?;
         store
             .set_dataset_version_status(&dataset_version_id, "building")
             .await?;
@@ -561,6 +584,7 @@ pub async fn build_human_dataset(
             serde_json::to_string_pretty(&json!({
                 "variant": variant,
                 "dataset_version_id": dataset_version_id,
+                "reused_existing_version": reused_existing_version,
                 "build_id": build_id,
                 "row_count": counts.row_count,
                 "positive_count": counts.positive_count,
@@ -571,6 +595,39 @@ pub async fn build_human_dataset(
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_low_confidence_geographic_category;
+
+    /// Regression test for the geographic-category bug found during the
+    /// pilot build: the strict-mode filter must key off the categories
+    /// `quality::assess_geography` actually assigns today
+    /// (`municipality_centroid_probable`, `precision_undocumented`,
+    /// `rounded_coordinate_probable`), not the aspirational, never-emitted
+    /// `precise_reported`/`estimated_reported` categories from the phase
+    /// 3A specification.
+    #[test]
+    fn strict_mode_rejects_only_the_genuinely_low_confidence_real_categories() {
+        assert!(
+            !is_low_confidence_geographic_category("precision_undocumented"),
+            "precision_undocumented is the achievable ceiling of quality today \
+             and must not be auto-rejected from strict mode"
+        );
+        assert!(is_low_confidence_geographic_category(
+            "municipality_centroid_probable"
+        ));
+        assert!(is_low_confidence_geographic_category(
+            "rounded_coordinate_probable"
+        ));
+    }
+
+    #[test]
+    fn strict_mode_selection_is_not_driven_by_fictional_categories() {
+        assert!(!is_low_confidence_geographic_category("precise_reported"));
+        assert!(!is_low_confidence_geographic_category("estimated_reported"));
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

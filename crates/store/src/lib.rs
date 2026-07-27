@@ -1545,4 +1545,13 @@ pub enum StoreError {
     /// An existing immutable calendar rule had different content.
     #[error("calendar rule changed without a new logical version: {0}")]
     CalendarRuleChanged(String),
+    /// A rebuild was attempted against a dataset version already finalized.
+    #[error("dataset version {0} is finalized and immutable; use a new logical_id")]
+    DatasetVersionFinalized(String),
+    /// A rebuild under the same logical_id used different defining parameters.
+    #[error(
+        "dataset version {0} already exists with different defining parameters; \
+         use a new logical_id"
+    )]
+    DatasetVersionParametersChanged(String),
 }

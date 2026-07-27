@@ -115,6 +115,50 @@ pub struct DatasetVersionSpec {
     pub notes: Option<String>,
 }
 
+/// The subset of an existing `ml.dataset_versions` row that defines the
+/// dataset (excludes name/description/notes/code_version/author, which may
+/// legitimately vary across a rebuild without it being a different dataset).
+#[derive(Clone, Debug, sqlx::FromRow)]
+struct ExistingDatasetVersionDefinition {
+    id: String,
+    status: String,
+    variant: String,
+    h3_resolution: i16,
+    timezone: String,
+    period_start: NaiveDate,
+    period_end: NaiveDate,
+    seed: i64,
+    negative_strategy: String,
+    migrations: Value,
+    quality_rule_versions: Value,
+    feature_snapshot_ids: Value,
+    calendar_rule_version_id: Option<String>,
+    inclusion_rules: Value,
+    exclusion_rules: Value,
+    negative_parameters: Value,
+    splits: Value,
+}
+
+impl ExistingDatasetVersionDefinition {
+    fn matches(&self, spec: &DatasetVersionSpec) -> bool {
+        self.variant == spec.variant
+            && self.h3_resolution == spec.h3_resolution
+            && self.timezone == spec.timezone
+            && self.period_start == spec.period_start
+            && self.period_end == spec.period_end
+            && self.seed == spec.seed
+            && self.negative_strategy == spec.negative_strategy
+            && self.migrations == spec.migrations
+            && self.quality_rule_versions == spec.quality_rule_versions
+            && self.feature_snapshot_ids == spec.feature_snapshot_ids
+            && self.calendar_rule_version_id == spec.calendar_rule_version_id
+            && self.inclusion_rules == spec.inclusion_rules
+            && self.exclusion_rules == spec.exclusion_rules
+            && self.negative_parameters == spec.negative_parameters
+            && self.splits == spec.splits
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DatasetRowRecord {
     pub h3: i64,
@@ -503,6 +547,55 @@ impl Store {
         .map_err(StoreError::from)
     }
 
+    /// Returns the existing non-finalized dataset version for `spec.logical_id`
+    /// if its defining parameters are unchanged, or creates a new one.
+    /// A rebuild with the same `logical_id` is therefore idempotent at the
+    /// version level: it never duplicates a version, and callers can add a
+    /// new [`ml.dataset_builds`] row and replay row/exclusion persistence
+    /// against the same version. A `finalized` version, or one whose
+    /// defining parameters differ, is rejected explicitly rather than
+    /// silently reused or duplicated.
+    ///
+    /// Returns `(id, reused)`, where `reused` is `true` when an existing
+    /// draft/validated version was returned instead of a new one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::DatasetVersionFinalized`] if the existing
+    /// version under this `logical_id` is finalized,
+    /// [`StoreError::DatasetVersionParametersChanged`] if it exists with
+    /// different defining parameters, or a database error otherwise.
+    pub async fn get_or_create_dataset_version(
+        &self,
+        spec: &DatasetVersionSpec,
+    ) -> Result<(String, bool), StoreError> {
+        let existing = sqlx::query_as::<_, ExistingDatasetVersionDefinition>(
+            "SELECT id::text, status, variant, h3_resolution, timezone,
+                    period_start, period_end, seed, negative_strategy,
+                    migrations, quality_rule_versions, feature_snapshot_ids,
+                    calendar_rule_version_id::text, inclusion_rules,
+                    exclusion_rules, negative_parameters, splits
+             FROM ml.dataset_versions WHERE logical_id = $1",
+        )
+        .bind(&spec.logical_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(existing) = existing else {
+            let id = self.create_dataset_version(spec).await?;
+            return Ok((id, false));
+        };
+        if existing.status == "finalized" {
+            return Err(StoreError::DatasetVersionFinalized(spec.logical_id.clone()));
+        }
+        if !existing.matches(spec) {
+            return Err(StoreError::DatasetVersionParametersChanged(
+                spec.logical_id.clone(),
+            ));
+        }
+        Ok((existing.id, true))
+    }
+
     /// Updates a non-finalized dataset version's status.
     ///
     /// # Errors
@@ -605,11 +698,17 @@ impl Store {
         Ok(())
     }
 
-    /// Persists dataset exclusions. Never silent, never deletes a source event.
+    /// Replaces the exclusion set for one dataset version with the
+    /// current build's recomputed exclusions. Idempotent: rebuilding the
+    /// same version from the same inputs first clears its prior exclusion
+    /// rows (these are ERYTHEON-derived audit rows scoped to this dataset
+    /// version, never `fire.ignition_events` itself, which is never
+    /// touched) then inserts the freshly computed set, so replaying a
+    /// build never accumulates duplicates.
     ///
     /// # Errors
     ///
-    /// Returns an error if `PostgreSQL` rejects the insert.
+    /// Returns an error if `PostgreSQL` rejects the transaction.
     pub async fn persist_dataset_exclusions(
         &self,
         dataset_version_id: &str,
@@ -626,6 +725,11 @@ impl Store {
                 })
             })
             .collect::<Vec<_>>();
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("DELETE FROM ml.dataset_exclusions WHERE dataset_version_id = $1::uuid")
+            .bind(dataset_version_id)
+            .execute(&mut *transaction)
+            .await?;
         sqlx::query(
             "WITH input AS (
                 SELECT * FROM jsonb_to_recordset($2::jsonb) AS value(
@@ -644,8 +748,9 @@ impl Store {
         )
         .bind(dataset_version_id)
         .bind(serde_json::json!(payload))
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
+        transaction.commit().await?;
         Ok(())
     }
 
