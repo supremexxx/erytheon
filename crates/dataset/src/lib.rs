@@ -9,5 +9,6 @@ pub mod checksums;
 pub mod exclusions;
 pub mod negatives;
 pub mod rows;
+pub mod snapshots;
 pub mod splits;
 pub mod temporal;

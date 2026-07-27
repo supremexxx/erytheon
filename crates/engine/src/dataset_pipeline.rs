@@ -194,9 +194,12 @@ pub async fn build_historical_calendar(
                 available_from,
                 source: "computed:erytheon_calendar_generation_v1".to_owned(),
                 // Public holidays, weekday, and season are exactly and
-                // deterministically computable for any past date; only
-                // school_holiday (left NULL above) is unavailable.
-                temporal_classification: TemporalClassification::HistoricalExact
+                // deterministically computable for any past date, but
+                // school_holiday is NULL above (no verified source), so the
+                // row as a whole cannot honestly be classified
+                // historical_exact yet; this must track school_holiday's
+                // presence, matching the database CHECK constraint exactly.
+                temporal_classification: TemporalClassification::UnavailableHistorically
                     .as_str()
                     .to_owned(),
                 logical_checksum,
