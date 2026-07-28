@@ -26,7 +26,7 @@ const CODE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// `PHASE3B6_SCIENTIFIC_DATASET_REVIEW.md` §6/§16: 7 real `cell_static`
 /// features, `combustible` as 0/1, and 4 real calendar features.
 /// `school_holiday` is excluded (100% missing, never fabricated).
-const FEATURE_NAMES: [&str; 12] = [
+pub(crate) const FEATURE_NAMES: [&str; 12] = [
     "wui",
     "road",
     "agri",
@@ -88,9 +88,9 @@ pub struct ExperimentManifest {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Sample {
-    x: [f64; 12],
-    y: f64,
+pub(crate) struct Sample {
+    pub(crate) x: [f64; 12],
+    pub(crate) y: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -110,7 +110,7 @@ impl LogisticModel {
     }
 }
 
-const fn mix64_local(mut x: u64) -> u64 {
+pub(crate) const fn mix64_local(mut x: u64) -> u64 {
     x ^= x >> 33;
     x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
     x ^= x >> 33;
@@ -484,7 +484,7 @@ pub struct GbmModel {
 }
 
 impl GbmModel {
-    fn predict(&self, x: &[f64; 12]) -> f64 {
+    pub(crate) fn predict(&self, x: &[f64; 12]) -> f64 {
         let mut z = self.base_score;
         for tree in &self.trees {
             z += self.learning_rate * tree.predict(x);
@@ -493,7 +493,12 @@ impl GbmModel {
     }
 }
 
-fn fit_gbm(samples: &[Sample], n_trees: usize, max_depth: usize, learning_rate: f64) -> GbmModel {
+pub(crate) fn fit_gbm(
+    samples: &[Sample],
+    n_trees: usize,
+    max_depth: usize,
+    learning_rate: f64,
+) -> GbmModel {
     #[allow(clippy::cast_precision_loss)]
     let positive_rate =
         samples.iter().filter(|s| s.y > 0.5).count() as f64 / samples.len().max(1) as f64;
@@ -526,7 +531,7 @@ fn fit_gbm(samples: &[Sample], n_trees: usize, max_depth: usize, learning_rate: 
 
 // --- Metrics ---
 
-fn roc_auc(scored: &[(f64, f64)]) -> f64 {
+pub(crate) fn roc_auc(scored: &[(f64, f64)]) -> f64 {
     let mut sorted = scored.to_vec();
     sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let positives = sorted.iter().filter(|(_, y)| *y > 0.5).count();
@@ -560,7 +565,7 @@ fn roc_auc(scored: &[(f64, f64)]) -> f64 {
     (rank_sum - p * (p + 1.0) / 2.0) / (p * n)
 }
 
-fn average_precision(scored: &[(f64, f64)]) -> f64 {
+pub(crate) fn average_precision(scored: &[(f64, f64)]) -> f64 {
     let mut sorted = scored.to_vec();
     sorted.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
     let total_positives = sorted.iter().filter(|(_, y)| *y > 0.5).count();
@@ -583,7 +588,7 @@ fn average_precision(scored: &[(f64, f64)]) -> f64 {
     }
 }
 
-fn log_loss(scored: &[(f64, f64)]) -> f64 {
+pub(crate) fn log_loss(scored: &[(f64, f64)]) -> f64 {
     let eps = 1e-12;
     #[allow(clippy::cast_precision_loss)]
     let n = scored.len() as f64;
@@ -600,7 +605,7 @@ fn log_loss(scored: &[(f64, f64)]) -> f64 {
     sum / n
 }
 
-fn brier_score(scored: &[(f64, f64)]) -> f64 {
+pub(crate) fn brier_score(scored: &[(f64, f64)]) -> f64 {
     #[allow(clippy::cast_precision_loss)]
     let n = scored.len() as f64;
     if scored.is_empty() {
@@ -610,7 +615,7 @@ fn brier_score(scored: &[(f64, f64)]) -> f64 {
 }
 
 /// Expected calibration error over 10 equal-width bins.
-fn expected_calibration_error(scored: &[(f64, f64)]) -> f64 {
+pub(crate) fn expected_calibration_error(scored: &[(f64, f64)]) -> f64 {
     const BINS: usize = 10;
     let mut bin_sum_p = [0.0; BINS];
     let mut bin_sum_y = [0.0; BINS];
@@ -645,7 +650,7 @@ fn expected_calibration_error(scored: &[(f64, f64)]) -> f64 {
     ece
 }
 
-fn precision_recall_f1(scored: &[(f64, f64)], threshold: f64) -> (f64, f64, f64) {
+pub(crate) fn precision_recall_f1(scored: &[(f64, f64)], threshold: f64) -> (f64, f64, f64) {
     let mut tp = 0.0;
     let mut fp = 0.0;
     let mut fn_ = 0.0;
@@ -669,7 +674,7 @@ fn precision_recall_f1(scored: &[(f64, f64)], threshold: f64) -> (f64, f64, f64)
     (precision, recall, f1)
 }
 
-fn precision_recall_lift_at_k(scored: &[(f64, f64)], fraction: f64) -> (f64, f64, f64) {
+pub(crate) fn precision_recall_lift_at_k(scored: &[(f64, f64)], fraction: f64) -> (f64, f64, f64) {
     let mut sorted = scored.to_vec();
     sorted.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
     #[allow(
@@ -724,7 +729,7 @@ pub struct SplitMetrics {
     pub lift_at_10pct: f64,
 }
 
-fn compute_split_metrics(split: &str, scored: &[(f64, f64)]) -> SplitMetrics {
+pub(crate) fn compute_split_metrics(split: &str, scored: &[(f64, f64)]) -> SplitMetrics {
     #[allow(clippy::cast_precision_loss)]
     let positive_rate =
         scored.iter().filter(|(_, y)| *y > 0.5).count() as f64 / scored.len().max(1) as f64;
@@ -778,7 +783,7 @@ fn apply_platt(score: f64, weight: f64, bias: f64) -> f64 {
 
 /// Pool-adjacent-violators isotonic regression, fit on (score, label)
 /// pairs sorted by score, producing a monotonic step function.
-fn fit_isotonic(scores: &[(f64, f64)]) -> Vec<(f64, f64)> {
+pub(crate) fn fit_isotonic(scores: &[(f64, f64)]) -> Vec<(f64, f64)> {
     let mut sorted = scores.to_vec();
     sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let mut blocks: Vec<(f64, f64, usize)> = Vec::new(); // (x_max, mean_y, count)
@@ -802,7 +807,7 @@ fn fit_isotonic(scores: &[(f64, f64)]) -> Vec<(f64, f64)> {
     blocks.into_iter().map(|(x, y, _)| (x, y)).collect()
 }
 
-fn apply_isotonic(score: f64, blocks: &[(f64, f64)]) -> f64 {
+pub(crate) fn apply_isotonic(score: f64, blocks: &[(f64, f64)]) -> f64 {
     if blocks.is_empty() {
         return score;
     }
@@ -820,7 +825,7 @@ fn extract_numeric(features: &serde_json::Value, name: &str) -> Option<f64> {
     features.get(name).and_then(serde_json::Value::as_f64)
 }
 
-fn build_raw_row(row: &TrainingRow) -> [Option<f64>; 12] {
+pub(crate) fn build_raw_row(row: &TrainingRow) -> [Option<f64>; 12] {
     let f = &row.features;
     [
         extract_numeric(f, "wui"),
@@ -856,7 +861,7 @@ fn feature_method(index: usize) -> NormalizationMethod {
 /// Fits train-only statistics for each numeric feature (indices 0-6) and
 /// returns them alongside the pre-chosen method map, ready to normalize
 /// any split's rows without ever reading calibration/test to do so.
-fn fit_train_only_transform(train_rows: &[[Option<f64>; 12]]) -> Vec<FeatureStatistics> {
+pub(crate) fn fit_train_only_transform(train_rows: &[[Option<f64>; 12]]) -> Vec<FeatureStatistics> {
     (0..12)
         .map(|i| {
             let values: Vec<Option<f64>> = train_rows
@@ -896,7 +901,7 @@ fn transform_row(
     out
 }
 
-fn to_samples(
+pub(crate) fn to_samples(
     rows: &[TrainingRow],
     stats: &[FeatureStatistics],
     rules: &[ImputationRule],
@@ -912,7 +917,7 @@ fn to_samples(
         .collect()
 }
 
-fn split_bounds(split: &str) -> Option<(NaiveDate, NaiveDate)> {
+pub(crate) fn split_bounds(split: &str) -> Option<(NaiveDate, NaiveDate)> {
     let d = |y: i32, m: u32, day: u32| NaiveDate::from_ymd_opt(y, m, day).unwrap();
     match split {
         "train" => Some((d(2020, 1, 1), d(2023, 12, 31))),
@@ -926,7 +931,7 @@ fn split_bounds(split: &str) -> Option<(NaiveDate, NaiveDate)> {
 /// Executable leakage assertion: every row claiming split `S` must fall
 /// within `S`'s real date range. Fails the experiment (returns an error)
 /// rather than silently continuing, per mission section 17.
-fn assert_split_dates_in_range(rows: &[TrainingRow]) -> anyhow::Result<()> {
+pub(crate) fn assert_split_dates_in_range(rows: &[TrainingRow]) -> anyhow::Result<()> {
     for row in rows {
         let Some((start, end)) = split_bounds(&row.split) else {
             anyhow::bail!(
@@ -1006,7 +1011,7 @@ pub async fn run_experiments(config: Config, options: ExperimentOptions) -> anyh
     Ok(())
 }
 
-fn h3_parent_res5(h3: i64) -> Option<u64> {
+pub(crate) fn h3_parent_res5(h3: i64) -> Option<u64> {
     let res5 = grid::Resolution::try_from(5).ok()?;
     grid::cell_from_db(h3)
         .ok()

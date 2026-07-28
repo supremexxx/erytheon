@@ -13,6 +13,7 @@ mod risk_pipeline;
 mod scheduler;
 mod static_layers;
 mod territory;
+mod v1_candidate_comparison;
 mod weather;
 
 use std::{
@@ -156,6 +157,13 @@ enum Command {
     RunModelExperiments {
         #[arg(long)]
         dry_run: bool,
+        #[arg(long, default_value_t = 2_026_071)]
+        seed: i64,
+    },
+    /// Runs the phase 3B.8 faithful v1-vs-candidate comparison on a
+    /// shared 2025 population. Never retrains v1, never deploys, never
+    /// modifies serving/API.
+    RunV1Comparison {
         #[arg(long, default_value_t = 2_026_071)]
         seed: i64,
     },
@@ -314,6 +322,13 @@ async fn main() -> anyhow::Result<()> {
             model_experiments::run_experiments(
                 config,
                 model_experiments::ExperimentOptions { dry_run, seed },
+            )
+            .await
+        }
+        Command::RunV1Comparison { seed } => {
+            v1_candidate_comparison::run_v1_comparison(
+                config,
+                v1_candidate_comparison::ComparisonOptions { seed },
             )
             .await
         }
