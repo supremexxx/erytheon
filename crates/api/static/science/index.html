@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>ERYTHEON — Console scientifique</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/science.css">
+  </head>
+  <body>
+    <div class="sci-shell">
+      <header class="sci-topbar">
+        <a class="sci-brand" href="/science/overview">
+          <span class="sci-brand-mark" aria-hidden="true">E</span>
+          <strong>ERYTHEON</strong>
+          <span class="sci-brand-sub">Console scientifique</span>
+        </a>
+        <div class="sci-readonly-badge" role="status">Lecture seule — aucune action possible</div>
+      </header>
+
+      <div class="sci-body">
+        <nav class="sci-nav" aria-label="Navigation console scientifique">
+          <a data-route="overview" href="/science/overview">Vue d'ensemble</a>
+          <a data-route="progress" href="/science/progress">Progression</a>
+          <a data-route="sources" href="/science/sources">Sources et pipelines</a>
+          <a data-route="data-quality" href="/science/data-quality">Qualité des données</a>
+          <a data-route="features" href="/science/features">Features et snapshots</a>
+          <a data-route="datasets" href="/science/datasets">Datasets</a>
+          <a data-route="models" href="/science/models">Modèles</a>
+          <a data-route="system" href="/science/system">Système et intégrité</a>
+        </nav>
+
+        <main class="sci-content" id="sci-content" aria-live="polite">
+          <div class="sci-loading">Chargement…</div>
+        </main>
+      </div>
+    </div>
+
+    <div class="sci-tooltip-portal" id="sci-tooltip-portal" role="tooltip" hidden></div>
+    <script src="/science.js" defer></script>
+  </body>
+</html>
