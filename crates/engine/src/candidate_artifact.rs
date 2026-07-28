@@ -523,6 +523,73 @@ fn training_inference_parity(
     })
 }
 
+/// Performance benchmark (mission section 16) for the independent
+/// inference path alone: artifact load (deserialize + validate) once,
+/// then per-row `score_with_artifact` timing over the full sample.
+/// Isolated-container timings only -- not a substitute for a real
+/// production benchmark, but sufficient to catch a gross regression
+/// before any promotion review.
+fn inference_performance_benchmark(
+    bytes: &[u8],
+    sample_rows: &[TrainingRow],
+) -> anyhow::Result<serde_json::Value> {
+    let load_start = std::time::Instant::now();
+    let artifact: CandidateArtifact = serde_json::from_slice(bytes)?;
+    artifact.validate()?;
+    let load_duration = load_start.elapsed();
+
+    let raws: Vec<BTreeMap<String, serde_json::Value>> = sample_rows
+        .iter()
+        .map(|row| {
+            row.features
+                .as_object()
+                .into_iter()
+                .flat_map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())))
+                .collect()
+        })
+        .collect();
+
+    let mut durations_ns: Vec<u128> = Vec::with_capacity(raws.len());
+    for raw in &raws {
+        let start = std::time::Instant::now();
+        let _ = score_with_artifact(&artifact, raw);
+        durations_ns.push(start.elapsed().as_nanos());
+    }
+    durations_ns.sort_unstable();
+    let percentile = |p: f64| -> f64 {
+        if durations_ns.is_empty() {
+            return 0.0;
+        }
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )]
+        let idx = ((durations_ns.len() as f64 - 1.0) * p) as usize;
+        #[allow(clippy::cast_precision_loss)]
+        {
+            durations_ns[idx] as f64 / 1000.0
+        }
+    };
+
+    let batch_start = std::time::Instant::now();
+    for raw in &raws {
+        let _ = score_with_artifact(&artifact, raw);
+    }
+    let batch_duration = batch_start.elapsed();
+
+    Ok(serde_json::json!({
+        "artifact_bytes": bytes.len(),
+        "artifact_load_and_validate_micros": load_duration.as_micros(),
+        "rows_scored": raws.len(),
+        "unit_score_p50_micros": percentile(0.50),
+        "unit_score_p95_micros": percentile(0.95),
+        "unit_score_p99_micros": percentile(0.99),
+        "batch_score_total_micros": batch_duration.as_micros(),
+        "environment_note": "measured in the isolated phase 3B.9 build container, not production; a gross-regression check only",
+    }))
+}
+
 /// Offline/online feature parity (mission sections 12-13): for a
 /// sample of the candidate's 2025 test rows, reconstructs each numeric/
 /// boolean feature from the same source a live serving path would use
@@ -662,6 +729,7 @@ pub struct PackagingOptions {
 /// and writes the artifact plus a packaging report to an isolated,
 /// disposable directory. Never writes to `human_model_versions`, never
 /// activates anything, never touches serving/API.
+#[allow(clippy::too_many_lines)]
 pub async fn run_packaging(
     config: crate::config::Config,
     options: PackagingOptions,
@@ -751,12 +819,22 @@ pub async fn run_packaging(
         )?
     );
 
+    // --- Performance benchmark ---
+    let performance = inference_performance_benchmark(&bytes, &test_rows)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(
+            &serde_json::json!({"phase": "3b9_performance", "result": &performance})
+        )?
+    );
+
     let artifact_path = artifact_dir.join("candidate_artifact_v2.json");
     std::fs::write(&artifact_path, &bytes)?;
     let report = serde_json::json!({
         "checksums": checksums,
         "training_inference_parity": parity,
         "offline_online_parity": offline_online,
+        "performance": performance,
     });
     let report_path = artifact_dir.join("packaging_report.json");
     std::fs::write(&report_path, serde_json::to_string_pretty(&report)?)?;
@@ -992,6 +1070,46 @@ mod tests {
         let mut artifact = minimal_artifact();
         artifact.feature_names.swap(0, 1);
         assert!(artifact.validate().is_err());
+    }
+
+    // Mission section 17: the candidate must never bring down the
+    // serving path -- a missing/corrupted artifact must fail the load
+    // (an Err a caller can catch and fall back to v1 on), never panic
+    // and never silently produce a score.
+    #[test]
+    fn load_and_verify_artifact_rejects_an_empty_byte_slice() {
+        assert!(load_and_verify_artifact(b"", "irrelevant").is_err());
+    }
+
+    #[test]
+    fn load_and_verify_artifact_rejects_a_missing_required_field() {
+        let mut value = serde_json::to_value(minimal_artifact()).unwrap();
+        value.as_object_mut().unwrap().remove("gbm");
+        let bytes = serde_json::to_vec(&value).unwrap();
+        assert!(load_and_verify_artifact(&bytes, "irrelevant").is_err());
+    }
+
+    #[test]
+    fn load_and_verify_artifact_rejects_an_incompatible_artifact_version() {
+        let mut artifact = minimal_artifact();
+        artifact.artifact_version = ARTIFACT_VERSION + 1;
+        let checksum = artifact_checksum(&artifact);
+        let bytes = serde_json::to_vec(&artifact).unwrap();
+        // Even with a matching checksum, an incompatible version must
+        // still be rejected by `validate()`.
+        assert!(load_and_verify_artifact(&bytes, &checksum).is_err());
+    }
+
+    #[test]
+    fn score_with_artifact_fails_rather_than_panics_on_a_missing_normalization_entry() {
+        let mut artifact = minimal_artifact();
+        artifact.normalization_parameters.remove("hist");
+        // validate() would already catch this, but score_with_artifact
+        // must not panic even if called on an unvalidated artifact.
+        let result =
+            std::panic::catch_unwind(|| score_with_artifact(&artifact, &full_raw_features()));
+        assert!(result.is_ok(), "score_with_artifact must not panic");
+        assert!(result.unwrap().is_err());
     }
 
     #[test]
