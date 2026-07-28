@@ -61,6 +61,19 @@ pub struct FeatureSnapshotSpec {
     pub notes: Option<String>,
 }
 
+/// One historical-calendar day's queryable fields, for phase 3B.5's
+/// candidate builder to use the real calendar instead of placeholder
+/// zeros.
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct CalendarDayLookup {
+    pub date: NaiveDate,
+    pub is_weekend: bool,
+    pub public_holiday: bool,
+    pub school_holiday: Option<bool>,
+    pub season_sine: f64,
+    pub season_cosine: f64,
+}
+
 #[derive(Clone, Debug)]
 pub struct CalendarRuleVersion {
     pub logical_id: String,
@@ -458,6 +471,25 @@ impl Store {
         Ok((row.0.unwrap_or_default(), row.1))
     }
 
+    /// Looks up an existing calendar rule version's id by `logical_id`,
+    /// without creating or modifying anything. Read-only.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `PostgreSQL` rejects the read.
+    pub async fn calendar_rule_version_id(
+        &self,
+        logical_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT id::text FROM features.calendar_rule_versions WHERE logical_id = $1",
+        )
+        .bind(logical_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
     /// Creates or returns an immutable calendar rule version.
     ///
     /// # Errors
@@ -566,6 +598,35 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Reads back `(date, is_weekend, public_holiday, school_holiday,
+    /// season_sine, season_cosine)` for every historical-calendar day in
+    /// `[start, end]` under one calendar rule version. Read-only; used by
+    /// the phase 3B.5 candidate builder to use the real, already-built
+    /// calendar instead of placeholder zeros.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `PostgreSQL` rejects the read.
+    pub async fn calendar_days_in_range(
+        &self,
+        rule_version_id: &str,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Result<Vec<CalendarDayLookup>, StoreError> {
+        sqlx::query_as::<_, CalendarDayLookup>(
+            "SELECT date, is_weekend, public_holiday, school_holiday,
+                    season_sine, season_cosine
+             FROM features.historical_calendar_days
+             WHERE rule_version_id = $1::uuid AND date BETWEEN $2 AND $3",
+        )
+        .bind(rule_version_id)
+        .bind(start)
+        .bind(end)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
     }
 
     /// Creates a new draft dataset version.

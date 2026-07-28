@@ -1,5 +1,6 @@
 mod backtest;
 mod bdiff_pipeline;
+mod candidate_pipeline;
 mod config;
 mod dataset_pipeline;
 mod export;
@@ -138,6 +139,16 @@ enum Command {
         #[arg(long)]
         dataset_version_id: String,
     },
+    /// Builds the phase 3B.5 candidate datasets (strict/inclusive x N2/N3).
+    /// For scientific review only; never finalized, never trained on.
+    BuildCandidateDataset {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value_t = 2_026_071)]
+        seed: i64,
+        #[arg(long, default_value_t = 3)]
+        ratio: u32,
+    },
     /// Pre-aggregates regional OSM PBF extracts into a reusable H3 cache.
     OsmAggregate {
         /// Destination newline-delimited JSON file.
@@ -194,6 +205,10 @@ enum FireHistorySelection {
     Promethee,
 }
 
+// A flat command dispatch match by design: one arm per CLI subcommand,
+// each a one-line delegation. Splitting it further would just move the
+// same dispatch into another function without reducing what it does.
+#[allow(clippy::too_many_lines)]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
@@ -269,6 +284,21 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::InspectDataset { dataset_version_id } => {
             inspect_dataset(config, &dataset_version_id).await
+        }
+        Command::BuildCandidateDataset {
+            dry_run,
+            seed,
+            ratio,
+        } => {
+            candidate_pipeline::build_candidate_datasets(
+                config,
+                candidate_pipeline::CandidateBuildOptions {
+                    dry_run,
+                    seed,
+                    ratio,
+                },
+            )
+            .await
         }
         Command::OsmAggregate { output } => osm_aggregate(&config, &output).await,
         Command::DataStatus => data_status(config).await,

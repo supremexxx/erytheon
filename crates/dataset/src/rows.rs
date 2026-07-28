@@ -32,6 +32,7 @@ pub struct RowFeatures {
     pub population: f64,
     pub poi: f64,
     pub power_line: f64,
+    pub hist: f64,
     pub combustible: bool,
     pub weekend: bool,
     /// `None` when no verified school-holiday source exists for this
@@ -89,6 +90,7 @@ mod tests {
             population: 0.3,
             poi: 0.4,
             power_line: 0.0,
+            hist: 0.0,
             combustible: true,
             weekend: false,
             school_holiday: Some(false),

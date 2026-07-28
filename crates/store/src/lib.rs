@@ -16,7 +16,7 @@ mod quality;
 
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
 pub use dataset::{
-    AnyCauseEventForNegativeDesign, CalendarRuleVersion, DatasetBuildCounts,
+    AnyCauseEventForNegativeDesign, CalendarDayLookup, CalendarRuleVersion, DatasetBuildCounts,
     DatasetEventLinkRecord, DatasetExclusionRecord, DatasetRowRecord, DatasetVersionSpec,
     DatasetVersionSummary, FeatureSnapshotSpec, HistoricalCalendarDayRecord,
     HumanDatasetCandidateEvent, dataset_row_count,
@@ -780,6 +780,28 @@ impl Store {
         .bind(seed)
         .fetch_all(&self.pool)
         .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(CellStaticRow {
+                    cell: grid::cell_from_db(row.try_get("h3")?)?,
+                    features: row.try_get("features")?,
+                })
+            })
+            .collect()
+    }
+
+    /// Every `cell_static` row (all 920,016 at H3 resolution 9), for the
+    /// phase 3B.5 resolution-9-to-8 feature aggregation
+    /// (`dataset::features_h3`). One-time read per candidate-dataset build
+    /// process, not per row; never mutates `public.cell_static`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query or H3 decoding fails.
+    pub async fn all_cell_static_rows(&self) -> Result<Vec<CellStaticRow>, StoreError> {
+        let rows = sqlx::query("SELECT h3, features FROM cell_static")
+            .fetch_all(&self.pool)
+            .await?;
         rows.into_iter()
             .map(|row| {
                 Ok(CellStaticRow {

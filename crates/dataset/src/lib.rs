@@ -7,8 +7,10 @@
 pub mod calendar;
 pub mod checksums;
 pub mod exclusions;
+pub mod features_h3;
 pub mod negative_design;
 pub mod negatives;
+pub mod normalization;
 pub mod rows;
 pub mod snapshots;
 pub mod splits;
