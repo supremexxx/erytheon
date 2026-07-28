@@ -254,19 +254,55 @@ All required local checks passed:
 - Chromium post-fix matrix: 32 checks, no browser errors.
 
 No test was ignored or weakened. The known arm64 Cargo cache conflict was not changed
-and remains reserved for a separate technical PR.
+and remains reserved for a separate technical PR. Both GitHub CI runs for commit
+`36027bfea23cef997a1f6a1fecd019c96966b734` passed before deployment.
 
 ## 12. Controlled deployment
 
-Pending GitHub CI. If CI is green, the final reviewed commit will be built as an exact
-`linux/amd64` application image and deployed by recreating only the application
-container. PostgreSQL and Caddy will remain in place, no migration will run, the
-science feature flag will remain enabled and the newly rotated Basic credential will
-remain unchanged.
+The reviewed commit was built locally for `linux/amd64` with exact revision labels and
+loaded on the VPS:
 
-The previous `erytheon:phase4a2-science-84903938` image and application configuration
-are the rollback target. This section must be updated with the exact image, SHA,
-container health and post-deployment validation before the phase is closed.
+| Item | Deployed value |
+|---|---|
+| Commit / OCI revision | `36027bfea23cef997a1f6a1fecd019c96966b734` |
+| Image | `erytheon:phase4a3-science-36027bf` |
+| Image ID | `sha256:974536c0b7557ffcfc20d953a19cecf5df9547e6008f2a1e3504bf1d50042f1a` |
+| Application container | `adce65acd90c…` |
+| Started | `2026-07-28T23:10:26.695507866Z` |
+| Health / restart count | healthy / 0 |
+| Rollback configuration | `/opt/pyrorisk/phase4a3-rollback/20260728T231015Z` |
+| Rollback image | `erytheon:phase4a2-science-84903938` |
+
+The latest production backup
+`pyrorisk-20260728T190714Z.dump` was independently verified before deployment:
+its SHA-256 check and `pg_restore --list` catalogue validation both passed.
+
+Only the application was recreated. PostgreSQL retained container ID
+`fbecc890d704…` and Caddy retained `a6eeb463f730…`; both remained healthy/running
+with zero restarts. No migration ran: the database remained at 17 successful and
+zero failed migrations. The science flag and rotated Basic credential were
+unchanged by the application deployment.
+
+Post-deployment validation confirmed:
+
+- anonymous science UI/API requests return 401 and authenticated requests return 200;
+- production serves the corrected table, tooltip and progress assets;
+- real Chromium at 375×812 has document width 375/375, zero console messages and
+  an accessible tooltip visible on keyboard focus;
+- the empty dataset registry is accurately labelled and Phase 4A.3 is visible;
+- v1 remains the sole active model; the sole candidate remains inactive;
+- dataset and snapshot counts remain zero; no scoring or shadow scoring appeared;
+- five sequential requests to every API endpoint produced zero errors, with maxima
+  from 21.8 ms to 186.4 ms (models 28.5 ms, system 90.9 ms);
+- the public health endpoint remains 200.
+
+The application restart normally triggered FIRMS and forecast scheduler work.
+Between the original audit snapshot and final validation, FIRMS raw rows increased
+from 34,139 to 34,709 and import/pipeline run counts from 131 to 133. Logs attribute
+these writes to `trigger_type=scheduler`; the console's earlier controlled
+before/after navigation window remained unchanged. Open-Meteo again followed its
+bounded 65-second retry behavior, reinforcing the existing degraded-freshness
+classification without introducing a new failure mode.
 
 ## 13. Residual risks and recommendation
 
@@ -282,3 +318,17 @@ container health and post-deployment validation before the phase is closed.
 
 Phase 4B, P3, shadow scoring, candidate activation/training and the arm64 Cargo cache
 fix were not started.
+
+```text
+PHASE 4A.3 STABILIZATION COMPLETED
+OBSERVED CONSOLE DEFECTS CORRECTED
+PRODUCTION VALIDATED AFTER CONTROLLED DEPLOYMENT
+UI API SQL CONSISTENCY CONFIRMED
+READ-ONLY BEHAVIOR CONFIRMED
+ACCESS CONTROL CONFIRMED
+V1 REMAINS ACTIVE
+CANDIDATE REMAINS INACTIVE
+NO CANDIDATE SCORING
+NO SHADOW SCORING
+PHASE 4B BACKLOG READY
+```
