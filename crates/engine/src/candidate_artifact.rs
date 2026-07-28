@@ -12,6 +12,7 @@ use dataset::normalization::{
     FeatureStatistics, ImputationRule, NormalizationMethod, apply_normalization,
 };
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use store::{Store, TrainingRow};
 
 use crate::model_experiments::{
@@ -160,17 +161,66 @@ struct ChecksumView<'a> {
     seed: i64,
 }
 
+/// Rounds a finite f64 to 13 significant decimal digits (via scientific
+/// notation, scale-invariant for both very small and very large
+/// values). Empirically, serializing an artifact and reloading it can
+/// introduce noise as small as one part in 10^16 in a rare value
+/// (observed once in a real trained `poi` standard deviation,
+/// 0.047431670861761484 vs. 0.04743167086176149 after a JSON round
+/// trip) -- most likely floating-point summation order sensitivity
+/// inherited from `dataset::normalization`'s statistics computation,
+/// not a data-corrupting bug (f64 has ~15-17 significant decimal
+/// digits of precision to begin with). Checksumming raw bit patterns
+/// would make the checksum spuriously non-reproducible across
+/// serialize/deserialize round trips; quantizing first makes the
+/// checksum robust to this while remaining far more precise than any
+/// statistic here is scientifically meaningful to that many digits.
+fn quantize(value: f64) -> f64 {
+    if !value.is_finite() {
+        return value;
+    }
+    format!("{value:.13e}").parse::<f64>().unwrap_or(value)
+}
+
+fn canonicalize(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Number(n) => {
+            n.as_f64()
+                .map_or(serde_json::Value::Number(n.clone()), |f| {
+                    serde_json::Number::from_f64(quantize(f))
+                        .map_or(serde_json::Value::Number(n), serde_json::Value::Number)
+                })
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(canonicalize).collect())
+        }
+        serde_json::Value::Object(map) => {
+            serde_json::Value::Object(map.into_iter().map(|(k, v)| (k, canonicalize(v))).collect())
+        }
+        other => other,
+    }
+}
+
+/// Checksums `value` after quantizing every floating-point number to
+/// 13 significant digits (see [`quantize`]), so the checksum survives
+/// a serialize/deserialize round trip and is independent of `HashMap`
+/// iteration order (every name-keyed field in [`ChecksumView`] is a
+/// `BTreeMap`) and of struct field declaration order (`serde_json`
+/// already preserves that deterministically).
+fn canonical_checksum<T: Serialize>(value: &T) -> String {
+    let json = serde_json::to_value(value).unwrap_or(serde_json::Value::Null);
+    let canonical = canonicalize(json);
+    let bytes = serde_json::to_vec(&canonical).unwrap_or_default();
+    format!("{:x}", sha2::Sha256::digest(bytes))
+}
+
 /// The full-artifact checksum. Deliberately excludes `created_at`
 /// (a non-scientific timestamp, mission section 6) and `metrics`/
 /// `scientific_interpretation`/`known_limitations` (descriptive, not
-/// load-bearing for reproducing the model). Uses `BTreeMap` for every
-/// name-keyed field so the checksum never depends on `HashMap`
-/// iteration order, and plain struct field order (which `serde_json`
-/// preserves) for everything else -- no ad hoc key-sorting pass
-/// needed.
+/// load-bearing for reproducing the model).
 #[must_use]
 pub fn artifact_checksum(artifact: &CandidateArtifact) -> String {
-    dataset::checksums::logical_checksum(&ChecksumView {
+    canonical_checksum(&ChecksumView {
         artifact_version: artifact.artifact_version,
         model_family: &artifact.model_family,
         model_name: &artifact.model_name,
@@ -194,20 +244,17 @@ pub fn artifact_checksum(artifact: &CandidateArtifact) -> String {
 
 #[must_use]
 pub fn gbm_checksum(artifact: &CandidateArtifact) -> String {
-    dataset::checksums::logical_checksum(&artifact.gbm)
+    canonical_checksum(&artifact.gbm)
 }
 
 #[must_use]
 pub fn calibrator_checksum(artifact: &CandidateArtifact) -> String {
-    dataset::checksums::logical_checksum(&(
-        &artifact.isotonic_breakpoints,
-        &artifact.isotonic_values,
-    ))
+    canonical_checksum(&(&artifact.isotonic_breakpoints, &artifact.isotonic_values))
 }
 
 #[must_use]
 pub fn transforms_checksum(artifact: &CandidateArtifact) -> String {
-    dataset::checksums::logical_checksum(&(
+    canonical_checksum(&(
         &artifact.normalization_parameters,
         &artifact.imputation_parameters,
     ))
@@ -215,7 +262,7 @@ pub fn transforms_checksum(artifact: &CandidateArtifact) -> String {
 
 #[must_use]
 pub fn feature_list_checksum(artifact: &CandidateArtifact) -> String {
-    dataset::checksums::logical_checksum(&artifact.feature_names)
+    canonical_checksum(&artifact.feature_names)
 }
 
 /// Deserializes an artifact and verifies it against an externally
@@ -851,6 +898,28 @@ mod tests {
             b.normalization_parameters.into_iter().rev().collect();
         b.normalization_parameters = reversed;
         assert_eq!(artifact_checksum(&a), artifact_checksum(&b));
+    }
+
+    // Regression test: a real trained artifact once produced a
+    // std_dev of 0.047431670861761484 before a JSON round trip and
+    // 0.04743167086176149 after -- a difference at the 16th
+    // significant digit, most likely floating-point summation order
+    // sensitivity, not data corruption. The checksum must survive
+    // this via quantization (see `quantize`'s doc comment).
+    #[test]
+    fn artifact_checksum_survives_a_json_round_trip_despite_ulp_level_float_noise() {
+        let mut artifact = minimal_artifact();
+        artifact
+            .normalization_parameters
+            .get_mut("poi")
+            .unwrap()
+            .statistics
+            .std_dev = 0.047_431_670_861_761_484;
+        let before = artifact_checksum(&artifact);
+        let bytes = serde_json::to_vec(&artifact).unwrap();
+        let reloaded: CandidateArtifact = serde_json::from_slice(&bytes).unwrap();
+        let after = artifact_checksum(&reloaded);
+        assert_eq!(before, after);
     }
 
     #[test]

@@ -656,6 +656,7 @@ dependencies = [
  "risk",
  "serde",
  "serde_json",
+ "sha2",
  "store",
  "thiserror 2.0.19",
  "tokio",
