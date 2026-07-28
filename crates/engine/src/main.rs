@@ -1,6 +1,7 @@
 mod backtest;
 mod bdiff_pipeline;
 mod candidate_artifact;
+mod candidate_load_verification;
 mod candidate_pipeline;
 mod config;
 mod dataset_pipeline;
@@ -202,6 +203,26 @@ enum Command {
         /// Either "candidate" or "inactive". "active" is not a valid value.
         #[arg(long)]
         status: String,
+        #[arg(long)]
+        expected_artifact_checksum: String,
+        #[arg(long)]
+        expected_gbm_checksum: String,
+        #[arg(long)]
+        expected_calibrator_checksum: String,
+        #[arg(long)]
+        expected_transforms_checksum: String,
+        #[arg(long)]
+        expected_feature_list_checksum: String,
+    },
+    /// Phase 3B.11 P2: reads the registered candidate strictly by id
+    /// inside a real read-only transaction, validates it, and never
+    /// scores anything. Every expected value is explicit; no default
+    /// to "latest"/"first"/"active"/"newest".
+    VerifyModelCandidateLoad {
+        #[arg(long)]
+        candidate_id: i64,
+        #[arg(long)]
+        expected_status: String,
         #[arg(long)]
         expected_artifact_checksum: String,
         #[arg(long)]
@@ -415,6 +436,29 @@ async fn main() -> anyhow::Result<()> {
                     dataset_logical_id,
                     seed,
                     status,
+                    expected_artifact_checksum,
+                    expected_gbm_checksum,
+                    expected_calibrator_checksum,
+                    expected_transforms_checksum,
+                    expected_feature_list_checksum,
+                },
+            )
+            .await
+        }
+        Command::VerifyModelCandidateLoad {
+            candidate_id,
+            expected_status,
+            expected_artifact_checksum,
+            expected_gbm_checksum,
+            expected_calibrator_checksum,
+            expected_transforms_checksum,
+            expected_feature_list_checksum,
+        } => {
+            candidate_load_verification::run_verify_load(
+                config,
+                candidate_load_verification::VerifyLoadOptions {
+                    candidate_id,
+                    expected_status,
                     expected_artifact_checksum,
                     expected_gbm_checksum,
                     expected_calibrator_checksum,

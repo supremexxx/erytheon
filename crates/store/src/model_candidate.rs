@@ -182,6 +182,38 @@ impl Store {
         Ok(row)
     }
 
+    /// Reads back one candidate row strictly by its primary key, inside
+    /// a real `PostgreSQL` read-only transaction (`SET TRANSACTION READ
+    /// ONLY`) -- not merely "a query that happens not to write
+    /// anything", but a transaction in which the server itself refuses
+    /// any write statement. Used by phase 3B.11 P2's load-only
+    /// verification, which must prove zero database writes occurred.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the query or transaction fails.
+    pub async fn model_candidate_by_id_read_only(
+        &self,
+        id: i64,
+    ) -> Result<Option<ModelCandidateRow>, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *transaction)
+            .await?;
+        let row = sqlx::query_as::<_, ModelCandidateRow>(
+            "SELECT id, created_at, model_family, model_name, artifact_version, status,
+                    git_commit, dataset_logical_id, dataset_row_fingerprint, seed, artifact,
+                    artifact_checksum, metrics, scientific_interpretation, known_limitations
+             FROM ml.model_candidate_registry
+             WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        transaction.rollback().await?;
+        Ok(row)
+    }
+
     /// Total row count in `ml.model_candidate_registry`, for
     /// before/after volume reporting (mission section 12).
     ///
