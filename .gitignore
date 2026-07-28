@@ -9,6 +9,7 @@ target/
 data/
 out/
 .playwright-cli/
+output/playwright/
 
 *.dump
 *.dump.sha256

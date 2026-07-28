@@ -133,13 +133,16 @@
     async overview() {
       const data = await fetchJSON("/api/science/overview");
       const now = fmtDate(new Date().toISOString());
+      const environment = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
+        ? "validation isolée"
+        : "production VPS";
       return `
         <h1>Vue d'ensemble</h1>
-        <p class="sci-page-meta">Environnement : validation isolée · source : lecture directe PostgreSQL · actualisé ${now}.</p>
+        <p class="sci-page-meta">Environnement : ${environment} · source : lecture directe PostgreSQL · actualisé ${now}.</p>
 
         <section class="sci-section">
           ${statusLine([
-            { key: "Environnement", val: "validation isolée" },
+            { key: "Environnement", val: environment },
             { key: "Base", val: data.db_status === "ok" ? "PostgreSQL healthy" : data.db_status },
             { key: "Modèle actif", html: def("modele_actif", `v1${data.active_model_id != null ? ` (id=${data.active_model_id})` : ""}`) },
             { key: "Candidat", html: def("modele_candidat", escapeHtml(data.candidate_status ?? "aucun")) + (data.candidate_model_family ? ` · ${escapeHtml(data.candidate_model_family)}` : "") },
