@@ -159,6 +159,7 @@ a {
   padding: 24px 32px 48px;
   max-width: 1440px;
   width: 100%;
+  min-width: 0;
 }
 
 .sci-loading,
@@ -305,6 +306,15 @@ h3 {
 }
 
 /* Tables — élément central de l'interface */
+.sci-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.sci-table-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 table.sci-table {
   width: 100%;
   border-collapse: collapse;
@@ -457,6 +467,11 @@ table.sci-table.sci-table-wrap td {
   font-size: 11.5px;
   color: var(--text-secondary);
 }
+pre.sci-mono {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .sci-defterm {
   border-bottom: 1px dotted var(--text-faint);
   cursor: help;
@@ -536,11 +551,6 @@ table.sci-table.sci-table-wrap td {
   }
   .sci-content {
     padding: 16px 16px 32px;
-  }
-  table.sci-table {
-    display: block;
-    overflow-x: auto;
-    white-space: nowrap;
   }
 }
 
