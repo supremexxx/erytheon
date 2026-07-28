@@ -28,7 +28,235 @@ use chrono::{Datelike, NaiveDate};
 use dataset::negative_design::{ExclusionStrategy, is_within_window};
 use dataset::splits::Split;
 use grid::{H3Grid, cell_from_db};
+use sqlx::PgPool;
 use store::{AnyCauseEventForNegativeDesign, Store};
+
+fn url_for_database(base_url: &str, db_name: &str) -> String {
+    let (prefix, _) = base_url
+        .rsplit_once('/')
+        .expect("DATABASE_URL must contain a database name");
+    format!("{prefix}/{db_name}")
+}
+
+async fn create_and_seed_temp_database(admin_url: &str, db_name: &str) -> String {
+    let admin_pool = PgPool::connect(admin_url)
+        .await
+        .expect("connect to admin database");
+    sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("drop stale negative-sampling test database");
+    sqlx::query(&format!("CREATE DATABASE {db_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("create negative-sampling test database");
+    admin_pool.close().await;
+
+    let temp_url = url_for_database(admin_url, db_name);
+    Store::connect(&temp_url)
+        .await
+        .expect("migrate negative-sampling test database");
+    let pool = PgPool::connect(&temp_url).await.expect("fixture pool");
+
+    let grid8 = H3Grid::new(8).expect("resolution 8 grid");
+    let event_h3 = grid::cell_to_db(
+        grid8
+            .cell_for_point(43.0, 2.0)
+            .expect("valid event coordinate"),
+    );
+
+    seed_ignition_events(&pool, event_h3).await;
+    seed_geographic_quality(&pool, event_h3).await;
+    seed_combustible_cells(&pool).await;
+
+    pool.close().await;
+    temp_url
+}
+
+async fn seed_ignition_events(pool: &PgPool, event_h3: i64) {
+    sqlx::query(
+        "INSERT INTO ops.import_batches (
+             id, source_id, batch_type, status, started_at, finished_at, parameters
+         ) VALUES (
+             '10000000-0000-4000-8000-000000000001',
+             '00000000-0000-4000-8000-000000000011',
+             'test_fixture', 'succeeded', NOW(), NOW(), '{\"fixture\":true}'
+         )",
+    )
+    .execute(pool)
+    .await
+    .expect("fixture import batch");
+
+    for (index, cause) in ["human_known", "natural_known", "unknown"]
+        .into_iter()
+        .enumerate()
+    {
+        let suffix = index + 1;
+        let raw_id = format!("20000000-0000-4000-8000-{suffix:012}");
+        let staging_id = format!("30000000-0000-4000-8000-{suffix:012}");
+        let event_id = format!("40000000-0000-4000-8000-{suffix:012}");
+        let source_record_id = format!("negative-fixture-{cause}");
+
+        sqlx::query(
+            "INSERT INTO raw.bdiff_records (
+                 id, import_batch_id, source_record_id, source_line_number,
+                 payload, retrieved_at, parsing_status
+             ) VALUES (
+                 $1::uuid, '10000000-0000-4000-8000-000000000001',
+                 $2, $3, '{\"fixture\":true}', NOW(), 'parsed'
+             )",
+        )
+        .bind(&raw_id)
+        .bind(&source_record_id)
+        .bind(i64::try_from(suffix).unwrap())
+        .execute(pool)
+        .await
+        .expect("fixture raw event");
+
+        sqlx::query(
+            "INSERT INTO staging.bdiff_events_normalized (
+                 id, raw_record_id, source_record_id, occurred_at,
+                 municipality_source, latitude, longitude, geom_original,
+                 surface_ha, cause_source, cause_category, cause_subcategory,
+                 taxonomy_version, normalizer_version, validation_status,
+                 validation_errors
+             ) VALUES (
+                 $1::uuid, $2::uuid, $3, '2022-06-15T12:00:00Z',
+                 'Fixture', 43.0, 2.0, ST_SetSRID(ST_MakePoint(2.0, 43.0), 4326),
+                 1.0, $4, $4, 'fixture', 'test-v1', 'test-v1', 'valid', '[]'
+             )",
+        )
+        .bind(&staging_id)
+        .bind(&raw_id)
+        .bind(&source_record_id)
+        .bind(cause)
+        .execute(pool)
+        .await
+        .expect("fixture normalized event");
+
+        sqlx::query(
+            "INSERT INTO fire.ignition_events (
+                 id, source_id, source_record_id, staging_event_id, occurred_at,
+                 occurred_on_local, municipality_source, latitude_original,
+                 longitude_original, geom_original, h3, h3_resolution, surface_ha,
+                 cause_source, cause_category, cause_subcategory, taxonomy_version
+             ) VALUES (
+                 $1::uuid, '00000000-0000-4000-8000-000000000011', $2,
+                 $3::uuid, '2022-06-15T12:00:00Z', '2022-06-15', 'Fixture',
+                 43.0, 2.0, ST_SetSRID(ST_MakePoint(2.0, 43.0), 4326),
+                 $4, 8, 1.0, $5, $5, 'fixture', 'test-v1'
+             )",
+        )
+        .bind(&event_id)
+        .bind(&source_record_id)
+        .bind(&staging_id)
+        .bind(event_h3)
+        .bind(cause)
+        .execute(pool)
+        .await
+        .expect("fixture ignition event");
+    }
+}
+
+async fn seed_geographic_quality(pool: &PgPool, event_h3: i64) {
+    sqlx::query(
+        "INSERT INTO validation.rule_versions (
+             id, logical_id, rule_type, description, parameters, code_version,
+             status, checksum
+         ) VALUES (
+             '50000000-0000-4000-8000-000000000001',
+             'negative_sampling_fixture_geography', 'geographic_quality',
+             'Deterministic integration-test fixture', '{\"fixture\":true}',
+             'test-v1', 'draft', 'negative-sampling-fixture-geography'
+         )",
+    )
+    .execute(pool)
+    .await
+    .expect("fixture geography rule");
+    sqlx::query(
+        "INSERT INTO validation.coordinate_groups (
+             id, rule_version_id, latitude, longitude, event_count,
+             municipality_count, year_count, decimal_precision,
+             repeated_coordinate, rounded_coordinate_probable, centroid_status,
+             signals, logical_checksum
+         ) VALUES (
+             '60000000-0000-4000-8000-000000000001',
+             '50000000-0000-4000-8000-000000000001',
+             43.0, 2.0, 3, 1, 1, 1, TRUE, FALSE, 'not_centroid_like',
+             '{\"fixture\":true}', 'negative-sampling-fixture-coordinate'
+         )",
+    )
+    .execute(pool)
+    .await
+    .expect("fixture coordinate group");
+
+    for suffix in 1..=3 {
+        let event_id = format!("40000000-0000-4000-8000-{suffix:012}");
+        sqlx::query(
+            "INSERT INTO validation.event_geographic_quality (
+                 ignition_event_id, rule_version_id, coordinate_group_id,
+                 latitude_original, longitude_original, geom_original,
+                 h3_original, h3_resolution, municipality_source,
+                 shared_coordinate_event_count, shared_coordinate_municipality_count,
+                 decimal_precision, rounded_coordinate_probable, centroid_status,
+                 geographic_category, confidence, reasons, logical_checksum
+             ) VALUES (
+                 $1::uuid, '50000000-0000-4000-8000-000000000001',
+                 '60000000-0000-4000-8000-000000000001',
+                 43.0, 2.0, ST_SetSRID(ST_MakePoint(2.0, 43.0), 4326),
+                 $2, 8, 'Fixture', 3, 1, 1, FALSE, 'not_centroid_like',
+                 'precision_undocumented', 1.0, '[]', $3
+             )",
+        )
+        .bind(&event_id)
+        .bind(event_h3)
+        .bind(format!("negative-sampling-fixture-geo-{suffix}"))
+        .execute(pool)
+        .await
+        .expect("fixture geographic assessment");
+    }
+}
+
+async fn seed_combustible_cells(pool: &PgPool) {
+    let grid9 = H3Grid::new(9).expect("resolution 9 grid");
+    let background_cells = [(43.0, 2.0), (44.0, 3.0), (45.0, 4.0)].map(|(lat, lon)| {
+        grid::cell_to_db(
+            grid9
+                .cell_for_point(lat, lon)
+                .expect("valid background coordinate"),
+        )
+    });
+    for h3 in background_cells {
+        sqlx::query(
+            "INSERT INTO cell_static (h3, features)
+             VALUES ($1, '{\"combustible\":true,\"fixture\":true}')",
+        )
+        .bind(h3)
+        .execute(pool)
+        .await
+        .expect("fixture combustible cell");
+    }
+}
+
+async fn drop_temp_database(admin_url: &str, db_name: &str) {
+    let admin_pool = PgPool::connect(admin_url)
+        .await
+        .expect("connect to admin database for cleanup");
+    sqlx::query(
+        "SELECT pg_terminate_backend(pid)
+         FROM pg_stat_activity
+         WHERE datname = $1 AND pid <> pg_backend_pid()",
+    )
+    .bind(db_name)
+    .execute(&admin_pool)
+    .await
+    .expect("terminate negative-sampling test connections");
+    sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("drop negative-sampling test database");
+    admin_pool.close().await;
+}
 
 /// Reads the process's current resident-set size from `/proc/self/status`,
 /// in kibibytes. Linux-only (the isolated build/test container this runs
@@ -71,10 +299,12 @@ struct Candidate {
 #[tokio::test]
 async fn experimental_negative_sampling_window_comparison() {
     dotenvy::dotenv().ok();
-    let Ok(database_url) = std::env::var("DATABASE_URL") else {
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
         eprintln!("skipping database integration test: DATABASE_URL is not configured");
         return;
     };
+    let db_name = format!("erytheon_negative_sampling_{}", std::process::id());
+    let database_url = create_and_seed_temp_database(&admin_url, &db_name).await;
     let store = Store::connect(&database_url).await.expect("migrations");
 
     let period_start = NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
@@ -440,4 +670,7 @@ async fn experimental_negative_sampling_window_comparison() {
             coincident_cell_and_date
         );
     }
+
+    drop(store);
+    drop_temp_database(&admin_url, &db_name).await;
 }

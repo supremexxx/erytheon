@@ -12,6 +12,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::Value;
+use sqlx::PgPool;
 use store::Store;
 use tokio::sync::broadcast;
 use tower::ServiceExt;
@@ -27,6 +28,54 @@ async fn connect() -> Option<Store> {
             .await
             .expect("database should accept connections and migrations"),
     )
+}
+
+fn url_for_database(base_url: &str, db_name: &str) -> String {
+    let (prefix, _) = base_url
+        .rsplit_once('/')
+        .expect("DATABASE_URL must contain a database name");
+    format!("{prefix}/{db_name}")
+}
+
+async fn create_temp_database(admin_url: &str, db_name: &str) -> String {
+    let admin_pool = PgPool::connect(admin_url)
+        .await
+        .expect("connect to admin database");
+    sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("drop stale science test database");
+    sqlx::query(&format!("CREATE DATABASE {db_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("create science test database");
+    admin_pool.close().await;
+
+    let temp_url = url_for_database(admin_url, db_name);
+    Store::connect(&temp_url)
+        .await
+        .expect("migrate science test database");
+    temp_url
+}
+
+async fn drop_temp_database(admin_url: &str, db_name: &str) {
+    let admin_pool = PgPool::connect(admin_url)
+        .await
+        .expect("connect to admin database for cleanup");
+    sqlx::query(
+        "SELECT pg_terminate_backend(pid)
+         FROM pg_stat_activity
+         WHERE datname = $1 AND pid <> pg_backend_pid()",
+    )
+    .bind(db_name)
+    .execute(&admin_pool)
+    .await
+    .expect("terminate science test connections");
+    sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("drop science test database");
+    admin_pool.close().await;
 }
 
 fn build_app(store: Store) -> axum::Router {
@@ -256,14 +305,38 @@ async fn features_and_calendar_never_hardcode_missing_school_holiday_data_as_zer
 
 #[tokio::test]
 async fn system_summary_reports_exactly_one_active_model() {
-    let Some(store) = connect().await else {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping science console integration test: DATABASE_URL is not configured");
         return;
     };
+    let db_name = format!("erytheon_science_active_model_{}", std::process::id());
+    let temp_url = create_temp_database(&admin_url, &db_name).await;
+    let store = Store::connect(&temp_url).await.expect("science test store");
+    store
+        .activate_human_model(
+            chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
+            chrono::NaiveDate::from_ymd_opt(2021, 12, 31).unwrap(),
+            chrono::NaiveDate::from_ymd_opt(2022, 1, 1).unwrap(),
+            chrono::NaiveDate::from_ymd_opt(2022, 12, 31).unwrap(),
+            1,
+            1,
+            1,
+            1,
+            &serde_json::json!({"fixture": "science-active-v1"}),
+            &serde_json::json!({"fixture": true}),
+        )
+        .await
+        .expect("create exactly one active v1 fixture");
+
     let app = build_app(store);
     let (status, system) = get_json(&app, "/api/science/system").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(system["active_model_count"], Value::from(1));
-    assert!(system["migrations_failed"].as_i64().unwrap_or(-1) == 0);
+    assert_eq!(system["migrations_failed"].as_i64().unwrap_or(-1), 0);
+
+    drop(app);
+    drop_temp_database(&admin_url, &db_name).await;
 }
 
 /// Confirms that hitting every read endpoint back-to-back does not
