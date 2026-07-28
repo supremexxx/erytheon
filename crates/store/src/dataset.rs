@@ -302,6 +302,28 @@ impl Store {
         .map_err(StoreError::from)
     }
 
+    /// Every negative (`label = 0`) row's `h3` value for one dataset
+    /// version, identified by `logical_id`. Read-only, for the phase 3B.6
+    /// scientific review's spatial-distribution analysis only.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `PostgreSQL` rejects the read.
+    pub async fn negative_h3_values_for_logical_id(
+        &self,
+        logical_id: &str,
+    ) -> Result<Vec<i64>, StoreError> {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT dr.h3 FROM ml.dataset_rows dr
+             JOIN ml.dataset_versions dv ON dv.id = dr.dataset_version_id
+             WHERE dv.logical_id = $1 AND dr.label = 0",
+        )
+        .bind(logical_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
     /// Every ignition event of any cause with its geographic-quality
     /// category, for the phase 3B.4 negative-sampling exclusion-window
     /// experiment only (see `dataset::negative_design` and
