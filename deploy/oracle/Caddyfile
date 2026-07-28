@@ -9,6 +9,11 @@
 	}
 
 	@science path /science /science/* /science.css /science.js /api/science /api/science/*
+	@favicon path /favicon.ico
+
+	handle @favicon {
+		respond 204
+	}
 
 	handle @science {
 		basic_auth {
