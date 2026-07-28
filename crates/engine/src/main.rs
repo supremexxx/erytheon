@@ -1,5 +1,6 @@
 mod backtest;
 mod bdiff_pipeline;
+mod candidate_artifact;
 mod candidate_pipeline;
 mod config;
 mod dataset_pipeline;
@@ -167,6 +168,13 @@ enum Command {
         #[arg(long, default_value_t = 2_026_071)]
         seed: i64,
     },
+    /// Runs the phase 3B.9 candidate artifact packaging, checksums,
+    /// and training/inference + offline/online parity checks. Never
+    /// writes to `human_model_versions`, never activates anything.
+    PackageCandidateArtifact {
+        #[arg(long, default_value_t = 2_026_071)]
+        seed: i64,
+    },
     /// Pre-aggregates regional OSM PBF extracts into a reusable H3 cache.
     OsmAggregate {
         /// Destination newline-delimited JSON file.
@@ -331,6 +339,10 @@ async fn main() -> anyhow::Result<()> {
                 v1_candidate_comparison::ComparisonOptions { seed },
             )
             .await
+        }
+        Command::PackageCandidateArtifact { seed } => {
+            candidate_artifact::run_packaging(config, candidate_artifact::PackagingOptions { seed })
+                .await
         }
         Command::OsmAggregate { output } => osm_aggregate(&config, &output).await,
         Command::DataStatus => data_status(config).await,
