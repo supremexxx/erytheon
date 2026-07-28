@@ -10,6 +10,8 @@
 - Les phases d'interface et de documentation ne doivent déclencher ni scoring, ni import, ni migration en production.
 - Les tags publiés `v0.4.2-app` et `v0.4.2` ne doivent pas être déplacés.
 
+La séquence **4A.3 → 4B → P3** est la recommandation actuelle. Elle pourra être réévaluée à partir des observations de 4A.3 ; cet ordre n'est pas une obligation irréversible et ne remplace pas les validations propres à chaque phase.
+
 ## Terminé et intégré
 
 ### Socle opérationnel historique

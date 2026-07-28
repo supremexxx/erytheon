@@ -131,7 +131,7 @@ La procédure de déploiement historique est décrite dans [`deploy/oracle/READM
 
 Les fondations de données, les datasets candidats, l'entraînement expérimental, la comparaison v1/candidat, le packaging, l'enregistrement inactif et la console scientifique privée sont terminés ou validés.
 
-La prochaine étape est **Phase 4A.3 — stabilisation** : usage réel de la console, cohérence des chiffres, ergonomie, monitoring, erreurs API et rate limits. Les visualisations avancées de Phase 4B puis le shadow scoring limité P3 viendront seulement après cette stabilisation.
+La prochaine étape est **Phase 4A.3 — stabilisation** : usage réel de la console, cohérence des chiffres, ergonomie, monitoring, erreurs API et rate limits. L'ordre recommandé à ce stade est ensuite Phase 4B, puis shadow scoring limité P3. Cette séquence pourra être réévaluée à la sortie de 4A.3 ; elle ne vaut ni engagement irréversible ni autorisation implicite de lancer P3.
 
 Voir [`ROADMAP.md`](ROADMAP.md) pour l'état détaillé et les critères de passage.
 
