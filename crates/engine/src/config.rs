@@ -25,6 +25,13 @@ const DEFAULT_RISK_W_WUI: &str = "0.25";
 const DEFAULT_RISK_W_ROAD: &str = "0.2";
 const DEFAULT_RISK_W_AGRI: &str = "0.15";
 const DEFAULT_API_BIND: &str = "0.0.0.0:8080";
+/// Phase 4A: the read-only scientific console's routes are only
+/// mounted when this is `true`. Defaults to `false` because no
+/// authentication exists anywhere in this API yet -- this flag is a
+/// deployment gate, not real access control (see
+/// `SCIENTIFIC_CONSOLE_ARCHITECTURE.md` for the honest limitation and
+/// the Phase 4B follow-up).
+const DEFAULT_SCIENCE_CONSOLE_ENABLED: &str = "false";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -50,6 +57,7 @@ pub struct Config {
     pub recompute_interval: Duration,
     pub risk: RiskConfig,
     pub api_bind: SocketAddr,
+    pub science_console_enabled: bool,
 }
 
 impl Config {
@@ -106,6 +114,10 @@ impl Config {
                 w_agri: parse_env("RISK_W_AGRI", DEFAULT_RISK_W_AGRI)?,
             },
             api_bind: parse_env("API_BIND", DEFAULT_API_BIND)?,
+            science_console_enabled: parse_env(
+                "SCIENCE_CONSOLE_ENABLED",
+                DEFAULT_SCIENCE_CONSOLE_ENABLED,
+            )?,
         };
         config.validate()?;
         Ok(config)

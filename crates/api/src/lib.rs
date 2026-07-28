@@ -22,6 +22,8 @@ use store::{FwiSnapshot, SourceStatusRow, Store, StoredRiskScore};
 use tokio::sync::broadcast;
 use tower_http::trace::TraceLayer;
 
+mod science;
+
 const DASHBOARD_HTML: &str = include_str!("../static/index.html");
 const DASHBOARD_CSS: &str = include_str!("../static/dashboard.css");
 const DASHBOARD_JS: &str = include_str!("../static/dashboard.js");
@@ -37,6 +39,7 @@ pub struct AppState {
     aoi: BoundingBox,
     territory_label: String,
     operational_cells: Option<Arc<Vec<CellIndex>>>,
+    science_console_enabled: bool,
 }
 
 impl AppState {
@@ -55,6 +58,7 @@ impl AppState {
             },
             territory_label: "Aude · Occitanie".to_owned(),
             operational_cells: None,
+            science_console_enabled: false,
         }
     }
 
@@ -69,6 +73,20 @@ impl AppState {
     pub fn with_operational_cells(mut self, cells: Vec<CellIndex>) -> Self {
         self.operational_cells = Some(Arc::new(cells));
         self
+    }
+
+    /// Phase 4A: enables mounting the read-only `/science` and
+    /// `/api/science/*` routes. Defaults to `false` -- no
+    /// authentication exists anywhere in this API yet, so this is a
+    /// deployment gate, not real access control.
+    #[must_use]
+    pub const fn with_science_console_enabled(mut self, enabled: bool) -> Self {
+        self.science_console_enabled = enabled;
+        self
+    }
+
+    pub(crate) fn store(&self) -> &Store {
+        &self.store
     }
 }
 
@@ -142,7 +160,7 @@ struct RiskUpdateCell {
 
 /// Builds the complete application router.
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let mut router = Router::new()
         .route("/", get(dashboard))
         .route("/dashboard.css", get(dashboard_css))
         .route("/dashboard.js", get(dashboard_js))
@@ -152,11 +170,54 @@ pub fn router(state: AppState) -> Router {
         .route("/risk/cell/{h3}", get(risk_cell))
         .route("/alerts", get(alerts))
         .route("/sources", get(sources))
-        .route("/stream", get(stream))
+        .route("/stream", get(stream));
+
+    // Phase 4A: the read-only scientific console is only mounted when
+    // explicitly enabled. No authentication exists anywhere in this
+    // API, so this flag is a deployment gate, not real access control
+    // -- see SCIENTIFIC_CONSOLE_ARCHITECTURE.md.
+    if state.science_console_enabled {
+        router = router
+            .route("/science", get(science_shell))
+            .route("/science/{*path}", get(science_shell))
+            .route("/science.css", get(science_css))
+            .route("/science.js", get(science_js))
+            .nest("/api/science", science::router());
+    }
+
+    router
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state)
         .layer(TraceLayer::new_for_http())
+}
+
+const SCIENCE_HTML: &str = include_str!("../static/science/index.html");
+const SCIENCE_CSS: &str = include_str!("../static/science/science.css");
+const SCIENCE_JS: &str = include_str!("../static/science/science.js");
+
+async fn science_shell() -> Html<&'static str> {
+    Html(SCIENCE_HTML)
+}
+
+async fn science_css() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        SCIENCE_CSS,
+    )
+}
+
+async fn science_js() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        SCIENCE_JS,
+    )
 }
 
 async fn api_config(State(state): State<AppState>) -> Json<ApiConfigResponse> {

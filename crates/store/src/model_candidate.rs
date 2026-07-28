@@ -4,6 +4,7 @@
 //! and never marks anything `active`.
 
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::{Store, StoreError};
@@ -45,7 +46,7 @@ impl ModelCandidateStatus {
     }
 }
 
-#[derive(Clone, Debug, sqlx::FromRow)]
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
 pub struct ModelCandidateRow {
     pub id: i64,
     pub created_at: DateTime<Utc>,

@@ -14,6 +14,7 @@ mod dataset;
 mod firms;
 mod model_candidate;
 mod quality;
+mod science;
 
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
 pub use dataset::{
@@ -31,6 +32,11 @@ pub use quality::{
     CombustibilityAssessmentRecord, CombustibleCandidateRecord, CoordinateGroupRecord,
     DuplicateGroupRecord, DuplicateMemberRecord, DuplicatePairRecord, GeographicAssessmentRecord,
     LabelAssessmentRecord, QualityPersistenceBundle, QualityRuleVersion, QualitySourceEvent,
+};
+pub use science::{
+    CalendarSummary, CategoryCount, DataQualitySummary, DatasetDetail, DatasetExclusionCount,
+    DatasetSplitCount, DatasetVersionSummaryRow, FeatureSnapshotRow, IgnitionEventExplorationRow,
+    ImportBatchRow, PipelineRunRow, ScienceOverview, SourceOverviewRow, SystemSummary,
 };
 
 /// One complete daily FWI result ready for persistence.

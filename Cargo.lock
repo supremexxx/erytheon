@@ -2851,6 +2851,7 @@ dependencies = [
  "quality",
  "reqwest",
  "risk",
+ "serde",
  "serde_json",
  "sqlx",
  "thiserror 2.0.19",
