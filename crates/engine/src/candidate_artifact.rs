@@ -852,6 +852,149 @@ pub async fn run_packaging(
     Ok(())
 }
 
+/// Every field required to register a model candidate in phase 3B.10
+/// P1. Every value is explicit -- none is inferred from "the latest"
+/// dataset/artifact/commit (mission section 10). The five expected
+/// checksums must all match the freshly-rebuilt artifact's own
+/// checksums, or registration is refused before any database write.
+#[derive(Clone, Debug)]
+pub struct RegisterCandidateOptions {
+    pub model_family: String,
+    pub model_name: String,
+    pub artifact_version: i32,
+    pub git_commit: String,
+    pub dataset_logical_id: String,
+    pub seed: i64,
+    pub status: store::ModelCandidateStatus,
+    pub expected_artifact_checksum: String,
+    pub expected_gbm_checksum: String,
+    pub expected_calibrator_checksum: String,
+    pub expected_transforms_checksum: String,
+    pub expected_feature_list_checksum: String,
+}
+
+/// Phase 3B.10 P1: registers exactly one, explicitly-verified candidate
+/// as `candidate`/`inactive` in `ml.model_candidate_registry`. Never
+/// writes to `human_model_versions`, never loads the candidate into a
+/// scoring path, never touches serving/API. Rebuilds the artifact from
+/// the same frozen hyperparameters and dataset `build_candidate_
+/// artifact` (P0) uses, then refuses to register unless *all five*
+/// checksums the caller supplied match the freshly-computed ones --
+/// this is the "no implicit latest" guard mission section 10 requires.
+#[allow(clippy::too_many_lines)]
+pub async fn run_register_model_candidate(
+    config: crate::config::Config,
+    options: RegisterCandidateOptions,
+) -> anyhow::Result<()> {
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("connect to database")?;
+
+    let artifact = build_candidate_artifact(&store, &options.git_commit, options.seed).await?;
+    artifact
+        .validate()
+        .context("freshly rebuilt artifact failed validation")?;
+    anyhow::ensure!(
+        artifact.dataset_logical_id == options.dataset_logical_id,
+        "dataset_logical_id mismatch: rebuilt artifact used {}, caller expected {}",
+        artifact.dataset_logical_id,
+        options.dataset_logical_id
+    );
+
+    let computed = serde_json::json!({
+        "artifact_checksum": artifact_checksum(&artifact),
+        "gbm_checksum": gbm_checksum(&artifact),
+        "calibrator_checksum": calibrator_checksum(&artifact),
+        "transforms_checksum": transforms_checksum(&artifact),
+        "feature_list_checksum": feature_list_checksum(&artifact),
+    });
+    let mismatches: Vec<&str> = [
+        (
+            "artifact_checksum",
+            &options.expected_artifact_checksum,
+            computed["artifact_checksum"].as_str().unwrap_or_default(),
+        ),
+        (
+            "gbm_checksum",
+            &options.expected_gbm_checksum,
+            computed["gbm_checksum"].as_str().unwrap_or_default(),
+        ),
+        (
+            "calibrator_checksum",
+            &options.expected_calibrator_checksum,
+            computed["calibrator_checksum"].as_str().unwrap_or_default(),
+        ),
+        (
+            "transforms_checksum",
+            &options.expected_transforms_checksum,
+            computed["transforms_checksum"].as_str().unwrap_or_default(),
+        ),
+        (
+            "feature_list_checksum",
+            &options.expected_feature_list_checksum,
+            computed["feature_list_checksum"]
+                .as_str()
+                .unwrap_or_default(),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(name, expected, actual)| (expected != actual).then_some(name))
+    .collect();
+    anyhow::ensure!(
+        mismatches.is_empty(),
+        "refusing to register: checksum mismatch on {mismatches:?} (rebuilt artifact does not match the caller-supplied expected checksums -- registration must never proceed on an unverified artifact)"
+    );
+    println!(
+        "{}",
+        serde_json::to_string_pretty(
+            &serde_json::json!({"phase": "3b10_checksum_verification", "verified": true, "computed": computed})
+        )?
+    );
+
+    let registration = store::ModelCandidateRegistration {
+        model_family: options.model_family,
+        model_name: options.model_name,
+        artifact_version: options.artifact_version,
+        status: options.status,
+        git_commit: options.git_commit,
+        dataset_logical_id: options.dataset_logical_id,
+        dataset_row_fingerprint: artifact.dataset_row_fingerprint.clone(),
+        seed: options.seed,
+        artifact: serde_json::to_value(&artifact)?,
+        artifact_checksum: options.expected_artifact_checksum,
+        metrics: artifact.metrics.clone(),
+        scientific_interpretation: artifact.scientific_interpretation.clone(),
+        known_limitations: artifact.known_limitations.clone(),
+    };
+
+    let count_before = store.model_candidate_registry_count().await?;
+    let outcome = store.register_model_candidate(registration).await?;
+    let count_after = store.model_candidate_registry_count().await?;
+
+    let (outcome_name, row) = match outcome {
+        store::ModelCandidateRegistrationOutcome::Registered(row) => ("registered", row),
+        store::ModelCandidateRegistrationOutcome::AlreadyRegistered(row) => {
+            ("already_registered", row)
+        }
+    };
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "phase": "3b10_registration_result",
+            "outcome": outcome_name,
+            "row_id": row.id,
+            "status": row.status,
+            "artifact_checksum": row.artifact_checksum,
+            "created_at": row.created_at.to_rfc3339(),
+            "registry_row_count_before": count_before,
+            "registry_row_count_after": count_after,
+        }))?
+    );
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

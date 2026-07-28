@@ -12,6 +12,7 @@ use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 mod bdiff;
 mod dataset;
 mod firms;
+mod model_candidate;
 mod quality;
 
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
@@ -22,6 +23,10 @@ pub use dataset::{
     HumanDatasetCandidateEvent, TrainingRow, dataset_row_count,
 };
 pub use firms::{FirmsImportIds, FirmsImportStart, FirmsPersistenceResult, FirmsTerminalState};
+pub use model_candidate::{
+    ModelCandidateRegistration, ModelCandidateRegistrationOutcome, ModelCandidateRow,
+    ModelCandidateStatus,
+};
 pub use quality::{
     CombustibilityAssessmentRecord, CombustibleCandidateRecord, CoordinateGroupRecord,
     DuplicateGroupRecord, DuplicateMemberRecord, DuplicatePairRecord, GeographicAssessmentRecord,
@@ -1577,4 +1582,9 @@ pub enum StoreError {
          use a new logical_id"
     )]
     DatasetVersionParametersChanged(String),
+    /// A model candidate's logical identity already exists with a
+    /// different artifact checksum; registration must refuse rather
+    /// than overwrite.
+    #[error("model candidate checksum conflict: {0}")]
+    ModelCandidateChecksumConflict(String),
 }

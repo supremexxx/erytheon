@@ -175,6 +175,39 @@ enum Command {
         #[arg(long, default_value_t = 2_026_071)]
         seed: i64,
     },
+    /// Phase 3B.10 P1: registers exactly one, explicitly-verified
+    /// candidate as `candidate`/`inactive` in
+    /// `ml.model_candidate_registry`. Never touches `human_model_
+    /// versions`, never loads the candidate into a scoring path.
+    /// Every value is explicit; no field is inferred from "the latest"
+    /// dataset/artifact/commit.
+    RegisterModelCandidate {
+        #[arg(long)]
+        model_family: String,
+        #[arg(long)]
+        model_name: String,
+        #[arg(long)]
+        artifact_version: i32,
+        #[arg(long)]
+        git_commit: String,
+        #[arg(long)]
+        dataset_logical_id: String,
+        #[arg(long)]
+        seed: i64,
+        /// Either "candidate" or "inactive". "active" is not a valid value.
+        #[arg(long)]
+        status: String,
+        #[arg(long)]
+        expected_artifact_checksum: String,
+        #[arg(long)]
+        expected_gbm_checksum: String,
+        #[arg(long)]
+        expected_calibrator_checksum: String,
+        #[arg(long)]
+        expected_transforms_checksum: String,
+        #[arg(long)]
+        expected_feature_list_checksum: String,
+    },
     /// Pre-aggregates regional OSM PBF extracts into a reusable H3 cache.
     OsmAggregate {
         /// Destination newline-delimited JSON file.
@@ -343,6 +376,46 @@ async fn main() -> anyhow::Result<()> {
         Command::PackageCandidateArtifact { seed } => {
             candidate_artifact::run_packaging(config, candidate_artifact::PackagingOptions { seed })
                 .await
+        }
+        Command::RegisterModelCandidate {
+            model_family,
+            model_name,
+            artifact_version,
+            git_commit,
+            dataset_logical_id,
+            seed,
+            status,
+            expected_artifact_checksum,
+            expected_gbm_checksum,
+            expected_calibrator_checksum,
+            expected_transforms_checksum,
+            expected_feature_list_checksum,
+        } => {
+            let status = match status.as_str() {
+                "candidate" => store::ModelCandidateStatus::Candidate,
+                "inactive" => store::ModelCandidateStatus::Inactive,
+                other => anyhow::bail!(
+                    "invalid --status {other:?}: must be \"candidate\" or \"inactive\""
+                ),
+            };
+            candidate_artifact::run_register_model_candidate(
+                config,
+                candidate_artifact::RegisterCandidateOptions {
+                    model_family,
+                    model_name,
+                    artifact_version,
+                    git_commit,
+                    dataset_logical_id,
+                    seed,
+                    status,
+                    expected_artifact_checksum,
+                    expected_gbm_checksum,
+                    expected_calibrator_checksum,
+                    expected_transforms_checksum,
+                    expected_feature_list_checksum,
+                },
+            )
+            .await
         }
         Command::OsmAggregate { output } => osm_aggregate(&config, &output).await,
         Command::DataStatus => data_status(config).await,
