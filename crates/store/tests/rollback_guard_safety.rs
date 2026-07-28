@@ -1,0 +1,426 @@
+//! Phase 3B.11: end-to-end verification that the `0013`-`0015` rollback
+//! guards actually stop destructive statements when the real `.sql`
+//! file is executed with `psql`, not just that their `DO` block's
+//! logic is sound in isolation (mission section 8: "ne considère pas
+//! un test du seul bloc DO comme suffisant"). Runs entirely against a
+//! disposable temporary database created inside the existing isolated
+//! `PostgreSQL` server -- never a new container, never the real isolated
+//! `pyrorisk` database (which now holds real, useful historical
+//! calendar/dataset data from earlier phases that must not be touched).
+
+use chrono::Utc;
+use serde_json::json;
+use sqlx::PgPool;
+use std::path::PathBuf;
+use std::process::Command;
+use store::{
+    CalendarRuleVersion, DatasetVersionSpec, FeatureSnapshotSpec, HistoricalCalendarDayRecord,
+    Store,
+};
+
+fn migrations_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../migrations/rollback")
+}
+
+/// Replaces the trailing `/pyrorisk` database name in a connection
+/// string with a disposable temporary database name.
+fn url_for_database(base_url: &str, db_name: &str) -> String {
+    let (prefix, _) = base_url
+        .rsplit_once('/')
+        .expect("DATABASE_URL must contain a database name");
+    format!("{prefix}/{db_name}")
+}
+
+fn run_psql(database_url: &str, sql_path: &std::path::Path) -> std::process::Output {
+    Command::new("psql")
+        .arg(database_url)
+        .arg("-v")
+        .arg("ON_ERROR_STOP=1")
+        .arg("-1")
+        .arg("-f")
+        .arg(sql_path)
+        .output()
+        .expect(
+            "psql must be installed in the test environment (apt-get install postgresql-client)",
+        )
+}
+
+/// Creates a fresh, disposable database on the same server as
+/// `admin_url` points to, runs every pending migration against it via
+/// `Store::connect`, and returns its connection URL. The caller is
+/// responsible for dropping it afterward.
+async fn create_and_migrate_temp_database(admin_url: &str, db_name: &str) -> String {
+    let admin_pool = PgPool::connect(admin_url)
+        .await
+        .expect("connect to admin database");
+    sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("drop any stale temp database");
+    sqlx::query(&format!("CREATE DATABASE {db_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("create temp database");
+    admin_pool.close().await;
+
+    let temp_url = url_for_database(admin_url, db_name);
+    Store::connect(&temp_url)
+        .await
+        .expect("run all migrations against the temp database");
+    temp_url
+}
+
+async fn drop_temp_database(admin_url: &str, db_name: &str) {
+    let admin_pool = PgPool::connect(admin_url)
+        .await
+        .expect("connect to admin database for cleanup");
+    // Terminate any lingering connections so DROP DATABASE doesn't fail.
+    sqlx::query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+    )
+    .bind(db_name)
+    .execute(&admin_pool)
+    .await
+    .ok();
+    sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
+        .execute(&admin_pool)
+        .await
+        .expect("drop temp database");
+}
+
+/// Removes a migration's `_sqlx_migrations` tracking row so the next
+/// `Store::connect` re-applies its forward `.sql` file, restoring the
+/// table that the empty-state rollback test just dropped. Mission
+/// section 7: "restaurer proprement la migration via `SQLx`" -- never
+/// leave `_sqlx_migrations` desynchronized from the real schema.
+async fn mark_migration_pending_again(url: &str, version: i64) {
+    let pool = PgPool::connect(url)
+        .await
+        .expect("pool for migration reset");
+    sqlx::query("DELETE FROM _sqlx_migrations WHERE version = $1")
+        .bind(version)
+        .execute(&pool)
+        .await
+        .expect("clear stale migration tracking row");
+    pool.close().await;
+}
+
+async fn table_is_empty(pool: &PgPool, table: &str) -> bool {
+    let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+        .fetch_one(pool)
+        .await
+        .unwrap_or(-1);
+    count == 0
+}
+
+#[tokio::test]
+async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping database integration test: DATABASE_URL is not configured");
+        return;
+    };
+    let db_name = "erytheon_rollback_test_0013";
+    let temp_url = create_and_migrate_temp_database(&admin_url, db_name).await;
+    let down_sql = migrations_root().join("0013_feature_snapshot_foundation.down.sql");
+
+    // Migration 0015 adds a foreign key from ml.dataset_row_snapshots to
+    // features.feature_snapshots; 0013 cannot roll back while that FK
+    // exists, even with an empty feature_snapshots table -- rollbacks
+    // must run in reverse migration order. 0015's own tables are empty
+    // here, so its rollback is authorized and safe.
+    let output_0015 = run_psql(
+        &temp_url,
+        &migrations_root().join("0015_dataset_versioning_foundation.down.sql"),
+    );
+    assert!(
+        output_0015.status.success(),
+        "rolling back the dependent migration 0015 first must succeed while its tables are empty: {}",
+        String::from_utf8_lossy(&output_0015.stderr)
+    );
+
+    // --- Empty-state rollback must succeed ---
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+    assert!(table_is_empty(&pool, "features.feature_snapshots").await);
+    let output = run_psql(&temp_url, &down_sql);
+    assert!(
+        output.status.success(),
+        "empty-state rollback must succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let table_gone: bool = sqlx::query_scalar(
+        "SELECT NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'features' AND table_name = 'feature_snapshots')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("check table dropped");
+    assert!(
+        table_gone,
+        "table must actually be dropped after an authorized empty rollback"
+    );
+    pool.close().await;
+
+    // --- Restore via SQLx, keeping _sqlx_migrations consistent ---
+    // Both 13 and 15 had their tables dropped above (15 first, to clear
+    // the FK; then 13); both tracking rows must be cleared so SQLx
+    // re-applies both forward migrations, in order, on the next connect.
+    mark_migration_pending_again(&temp_url, 13).await;
+    mark_migration_pending_again(&temp_url, 15).await;
+    Store::connect(&temp_url)
+        .await
+        .expect("reapply migrations 13 and 15");
+
+    // --- Insert a minimal fixture, then the guard must refuse ---
+    let store = Store::connect(&temp_url).await.expect("store");
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+    let spec = FeatureSnapshotSpec {
+        family: "rollback_test_family".to_owned(),
+        source: "test".to_owned(),
+        provider: None,
+        vintage: None,
+        valid_from: None,
+        valid_until: None,
+        available_from: Utc::now(),
+        available_until: None,
+        retrieved_at: None,
+        code_version: "test".to_owned(),
+        normalizer_version: "test".to_owned(),
+        parameters: json!({"test": true}),
+        source_checksum: None,
+        logical_checksum: "rollback_test_checksum".to_owned(),
+        reference_table: "public.cell_static".to_owned(),
+        cell_count: 1,
+        h3_resolution: 8,
+        geographic_coverage: None,
+        temporal_classification: "current_snapshot_applied_historically".to_owned(),
+        limitations: json!([]),
+        license_attribution: None,
+        notes: None,
+    };
+    store
+        .register_feature_snapshot(&spec)
+        .await
+        .expect("register fixture snapshot");
+    assert!(!table_is_empty(&pool, "features.feature_snapshots").await);
+
+    let output = run_psql(&temp_url, &down_sql);
+    assert!(
+        !output.status.success(),
+        "rollback must refuse (non-zero exit) once real data exists"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("refusing destructive rollback"),
+        "guard error message must be present: {stderr}"
+    );
+    assert!(
+        !table_is_empty(&pool, "features.feature_snapshots").await,
+        "fixture row must survive the refused rollback"
+    );
+    let table_still_there: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'features' AND table_name = 'feature_snapshots')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("check table survives");
+    assert!(
+        table_still_there,
+        "table must not be dropped when the guard refuses"
+    );
+    pool.close().await;
+
+    drop_temp_database(&admin_url, db_name).await;
+}
+
+#[tokio::test]
+async fn rollback_0014_refuses_destructively_once_calendar_data_exists() {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping database integration test: DATABASE_URL is not configured");
+        return;
+    };
+    let db_name = "erytheon_rollback_test_0014";
+    let temp_url = create_and_migrate_temp_database(&admin_url, db_name).await;
+    let down_sql = migrations_root().join("0014_historical_calendar_foundation.down.sql");
+
+    // Migration 0015 adds a foreign key from ml.dataset_versions to
+    // features.calendar_rule_versions; 0014 cannot roll back while that
+    // FK exists, even with empty tables -- rollbacks must run in
+    // reverse migration order. 0015's own tables are empty here, so its
+    // rollback is authorized and safe.
+    let output_0015 = run_psql(
+        &temp_url,
+        &migrations_root().join("0015_dataset_versioning_foundation.down.sql"),
+    );
+    assert!(
+        output_0015.status.success(),
+        "rolling back the dependent migration 0015 first must succeed while its tables are empty: {}",
+        String::from_utf8_lossy(&output_0015.stderr)
+    );
+
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+    assert!(table_is_empty(&pool, "features.historical_calendar_days").await);
+    assert!(table_is_empty(&pool, "features.calendar_rule_versions").await);
+    let output = run_psql(&temp_url, &down_sql);
+    assert!(
+        output.status.success(),
+        "empty-state rollback must succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    pool.close().await;
+
+    mark_migration_pending_again(&temp_url, 14).await;
+    mark_migration_pending_again(&temp_url, 15).await;
+    let store = Store::connect(&temp_url)
+        .await
+        .expect("reapply migrations 14 and 15");
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+
+    let rule = CalendarRuleVersion {
+        logical_id: "rollback_test_calendar_rule".to_owned(),
+        rule_type: "public_holiday".to_owned(),
+        description: "test".to_owned(),
+        parameters: json!({"test": true}),
+        code_version: "test".to_owned(),
+        status: "draft".to_owned(),
+        checksum: "rollback_test_calendar_checksum".to_owned(),
+        notes: None,
+    };
+    let rule_version_id = store
+        .ensure_calendar_rule_version(&rule)
+        .await
+        .expect("fixture rule");
+    let day = HistoricalCalendarDayRecord {
+        date: chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
+        school_zone: "unspecified".to_owned(),
+        year: 2020,
+        month: 1,
+        day_of_week: 2,
+        is_weekend: false,
+        public_holiday: true,
+        public_holiday_label: Some("test holiday".to_owned()),
+        school_holiday: None,
+        school_holiday_label: None,
+        is_day_before_public_holiday: false,
+        is_day_after_public_holiday: false,
+        season: 0,
+        season_sine: 0.0,
+        season_cosine: 1.0,
+        available_from: Utc::now(),
+        source: "test".to_owned(),
+        temporal_classification: "unavailable_historically".to_owned(),
+        logical_checksum: "rollback_test_day_checksum".to_owned(),
+    };
+    store
+        .persist_historical_calendar_days(&rule_version_id, std::slice::from_ref(&day))
+        .await
+        .expect("fixture day");
+    assert!(!table_is_empty(&pool, "features.historical_calendar_days").await);
+
+    let output = run_psql(&temp_url, &down_sql);
+    assert!(
+        !output.status.success(),
+        "rollback must refuse once real data exists"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("refusing destructive rollback"),
+        "guard error message must be present: {stderr}"
+    );
+    assert!(
+        !table_is_empty(&pool, "features.historical_calendar_days").await,
+        "fixture day must survive"
+    );
+    assert!(
+        !table_is_empty(&pool, "features.calendar_rule_versions").await,
+        "fixture rule must survive"
+    );
+    pool.close().await;
+
+    drop_temp_database(&admin_url, db_name).await;
+}
+
+#[tokio::test]
+async fn rollback_0015_refuses_destructively_once_a_dataset_version_exists() {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping database integration test: DATABASE_URL is not configured");
+        return;
+    };
+    let db_name = "erytheon_rollback_test_0015";
+    let temp_url = create_and_migrate_temp_database(&admin_url, db_name).await;
+    let down_sql = migrations_root().join("0015_dataset_versioning_foundation.down.sql");
+
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+    for table in [
+        "ml.dataset_versions",
+        "ml.dataset_builds",
+        "ml.dataset_rows",
+    ] {
+        assert!(
+            table_is_empty(&pool, table).await,
+            "{table} must start empty"
+        );
+    }
+    let output = run_psql(&temp_url, &down_sql);
+    assert!(
+        output.status.success(),
+        "empty-state rollback must succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    pool.close().await;
+
+    mark_migration_pending_again(&temp_url, 15).await;
+    let store = Store::connect(&temp_url)
+        .await
+        .expect("reapply migration 15");
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+
+    let spec = DatasetVersionSpec {
+        logical_id: "rollback_test_dataset_version".to_owned(),
+        name: "rollback test dataset".to_owned(),
+        description: "test".to_owned(),
+        observation_unit: "h3_cell_x_civil_date".to_owned(),
+        h3_resolution: 8,
+        timezone: "Europe/Paris".to_owned(),
+        period_start: chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
+        period_end: chrono::NaiveDate::from_ymd_opt(2020, 12, 31).unwrap(),
+        variant: "strict".to_owned(),
+        code_version: "test".to_owned(),
+        migrations: json!([13, 14, 15]),
+        quality_rule_versions: json!([]),
+        feature_snapshot_ids: json!([]),
+        calendar_rule_version_id: None,
+        inclusion_rules: json!({}),
+        exclusion_rules: json!({}),
+        negative_strategy: "test".to_owned(),
+        negative_parameters: json!({}),
+        seed: 1,
+        splits: json!({}),
+        author_or_pipeline: "test".to_owned(),
+        notes: None,
+    };
+    store
+        .create_dataset_version(&spec)
+        .await
+        .expect("fixture dataset version");
+    assert!(!table_is_empty(&pool, "ml.dataset_versions").await);
+
+    let output = run_psql(&temp_url, &down_sql);
+    assert!(
+        !output.status.success(),
+        "rollback must refuse once real data exists"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("refusing destructive rollback"),
+        "guard error message must be present: {stderr}"
+    );
+    assert!(
+        !table_is_empty(&pool, "ml.dataset_versions").await,
+        "fixture dataset version must survive"
+    );
+    pool.close().await;
+
+    drop_temp_database(&admin_url, db_name).await;
+}
