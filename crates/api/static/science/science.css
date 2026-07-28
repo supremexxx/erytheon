@@ -466,6 +466,9 @@ table.sci-table.sci-table-wrap td {
   grid-template-columns: 1fr 1fr;
   gap: 20px;
 }
+.sci-two-col > * {
+  min-width: 0;
+}
 
 .sci-definition-grid {
   display: grid;
@@ -480,6 +483,7 @@ table.sci-table.sci-table-wrap td {
 .sci-definition-grid dd {
   margin: 0;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .sci-method-panel {
