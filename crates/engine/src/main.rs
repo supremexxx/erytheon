@@ -62,6 +62,7 @@ struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Command {
     /// Runs database migrations and starts the HTTP service.
     Run,
@@ -188,6 +189,10 @@ enum Command {
         model_name: String,
         #[arg(long)]
         artifact_version: i32,
+        /// Path to the exact P0 artifact JSON file (`package-candidate-
+        /// artifact`'s output). Never rebuilt from a live dataset query.
+        #[arg(long)]
+        artifact_path: PathBuf,
         #[arg(long)]
         git_commit: String,
         #[arg(long)]
@@ -381,6 +386,7 @@ async fn main() -> anyhow::Result<()> {
             model_family,
             model_name,
             artifact_version,
+            artifact_path,
             git_commit,
             dataset_logical_id,
             seed,
@@ -404,6 +410,7 @@ async fn main() -> anyhow::Result<()> {
                     model_family,
                     model_name,
                     artifact_version,
+                    artifact_path,
                     git_commit,
                     dataset_logical_id,
                     seed,

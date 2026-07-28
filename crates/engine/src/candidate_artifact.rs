@@ -854,14 +854,25 @@ pub async fn run_packaging(
 
 /// Every field required to register a model candidate in phase 3B.10
 /// P1. Every value is explicit -- none is inferred from "the latest"
-/// dataset/artifact/commit (mission section 10). The five expected
-/// checksums must all match the freshly-rebuilt artifact's own
-/// checksums, or registration is refused before any database write.
+/// dataset/artifact/commit (mission section 10). `artifact_path` must
+/// point at the exact P0 artifact file (`package-candidate-artifact`'s
+/// output) -- this command never rebuilds the artifact from a live
+/// dataset query, since the candidate dataset only ever exists in the
+/// isolated training database, never in production (a real design
+/// error caught the hard way: the first production attempt tried to
+/// rebuild via `build_candidate_artifact`, which reads `ml.dataset_
+/// rows`, empty on production, and failed with a decode error before
+/// writing anything -- no partial row was created). The five expected
+/// checksums must all match the loaded artifact's own checksums, and
+/// `git_commit`/`dataset_logical_id`/`seed` must all match the values
+/// already embedded in the artifact file, or registration is refused
+/// before any database write.
 #[derive(Clone, Debug)]
 pub struct RegisterCandidateOptions {
     pub model_family: String,
     pub model_name: String,
     pub artifact_version: i32,
+    pub artifact_path: std::path::PathBuf,
     pub git_commit: String,
     pub dataset_logical_id: String,
     pub seed: i64,
@@ -876,10 +887,12 @@ pub struct RegisterCandidateOptions {
 /// Phase 3B.10 P1: registers exactly one, explicitly-verified candidate
 /// as `candidate`/`inactive` in `ml.model_candidate_registry`. Never
 /// writes to `human_model_versions`, never loads the candidate into a
-/// scoring path, never touches serving/API. Rebuilds the artifact from
-/// the same frozen hyperparameters and dataset `build_candidate_
-/// artifact` (P0) uses, then refuses to register unless *all five*
-/// checksums the caller supplied match the freshly-computed ones --
+/// scoring path, never touches serving/API. Loads the already-built P0
+/// artifact from `options.artifact_path` (never rebuilds it against a
+/// live dataset -- see the doc comment on `RegisterCandidateOptions`),
+/// then refuses to register unless *all five* checksums the caller
+/// supplied match the loaded artifact's own, and unless `git_commit`/
+/// `dataset_logical_id`/`seed` match what's embedded in the artifact --
 /// this is the "no implicit latest" guard mission section 10 requires.
 #[allow(clippy::too_many_lines)]
 pub async fn run_register_model_candidate(
@@ -890,15 +903,30 @@ pub async fn run_register_model_candidate(
         .await
         .context("connect to database")?;
 
-    let artifact = build_candidate_artifact(&store, &options.git_commit, options.seed).await?;
+    let artifact_bytes = std::fs::read(&options.artifact_path)
+        .with_context(|| format!("read artifact file {}", options.artifact_path.display()))?;
+    let artifact: CandidateArtifact = serde_json::from_slice(&artifact_bytes)
+        .context("artifact file is malformed or incompatible JSON")?;
     artifact
         .validate()
-        .context("freshly rebuilt artifact failed validation")?;
+        .context("loaded artifact failed validation")?;
     anyhow::ensure!(
         artifact.dataset_logical_id == options.dataset_logical_id,
-        "dataset_logical_id mismatch: rebuilt artifact used {}, caller expected {}",
+        "dataset_logical_id mismatch: artifact file has {}, caller expected {}",
         artifact.dataset_logical_id,
         options.dataset_logical_id
+    );
+    anyhow::ensure!(
+        artifact.git_commit == options.git_commit,
+        "git_commit mismatch: artifact file has {}, caller expected {}",
+        artifact.git_commit,
+        options.git_commit
+    );
+    anyhow::ensure!(
+        artifact.seed == options.seed,
+        "seed mismatch: artifact file has {}, caller expected {}",
+        artifact.seed,
+        options.seed
     );
 
     let computed = serde_json::json!({
