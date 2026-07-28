@@ -54,6 +54,7 @@ services:
       RISK_W_ROAD: ${RISK_W_ROAD}
       RISK_W_AGRI: ${RISK_W_AGRI}
       API_BIND: 0.0.0.0:8080
+      SCIENCE_CONSOLE_ENABLED: ${SCIENCE_CONSOLE_ENABLED:-false}
       RUST_LOG: ${RUST_LOG}
     volumes:
       - ../../data:/data:ro
@@ -72,6 +73,8 @@ services:
         condition: service_healthy
     environment:
       PYRORISK_DOMAIN: ${PYRORISK_DOMAIN}
+      SCIENCE_USER: ${SCIENCE_USER}
+      SCIENCE_PASSWORD_HASH: ${SCIENCE_PASSWORD_HASH}
     ports:
       - "80:80"
       - "443:443"

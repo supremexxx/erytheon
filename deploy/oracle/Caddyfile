@@ -2,11 +2,23 @@
 	encode zstd gzip
 
 	header {
-		Referrer-Policy "strict-origin-when-cross-origin"
+		Referrer-Policy "no-referrer"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		-Server
 	}
 
-	reverse_proxy app:8080
+	@science path /science /science/* /science.css /science.js /api/science /api/science/*
+
+	handle @science {
+		basic_auth {
+			{$SCIENCE_USER} {$SCIENCE_PASSWORD_HASH}
+		}
+
+		reverse_proxy app:8080
+	}
+
+	handle {
+		reverse_proxy app:8080
+	}
 }

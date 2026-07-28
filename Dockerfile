@@ -2,6 +2,9 @@
 
 FROM rust:1.94-bookworm AS builder
 
+ARG ERYTHEON_GIT_COMMIT=unknown
+ENV ERYTHEON_GIT_COMMIT=${ERYTHEON_GIT_COMMIT}
+
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -13,6 +16,18 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cp /src/target/release/pyrorisk /tmp/pyrorisk
 
 FROM debian:bookworm-slim AS runtime
+
+ARG OCI_REVISION=unknown
+ARG OCI_CREATED=unknown
+ARG OCI_TITLE=erytheon
+ARG ERYTHEON_PHASE=unknown
+ARG ERYTHEON_SCIENCE_CONSOLE=false
+
+LABEL org.opencontainers.image.revision="${OCI_REVISION}" \
+      org.opencontainers.image.created="${OCI_CREATED}" \
+      org.opencontainers.image.title="${OCI_TITLE}" \
+      erytheon.phase="${ERYTHEON_PHASE}" \
+      erytheon.science_console="${ERYTHEON_SCIENCE_CONSOLE}"
 
 RUN apt-get update && \
     apt-get install --yes --no-install-recommends ca-certificates curl gdal-bin && \
