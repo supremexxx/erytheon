@@ -16,9 +16,10 @@ mod quality;
 
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
 pub use dataset::{
-    CalendarRuleVersion, DatasetBuildCounts, DatasetEventLinkRecord, DatasetExclusionRecord,
-    DatasetRowRecord, DatasetVersionSpec, DatasetVersionSummary, FeatureSnapshotSpec,
-    HistoricalCalendarDayRecord, HumanDatasetCandidateEvent, dataset_row_count,
+    AnyCauseEventForNegativeDesign, CalendarRuleVersion, DatasetBuildCounts,
+    DatasetEventLinkRecord, DatasetExclusionRecord, DatasetRowRecord, DatasetVersionSpec,
+    DatasetVersionSummary, FeatureSnapshotSpec, HistoricalCalendarDayRecord,
+    HumanDatasetCandidateEvent, dataset_row_count,
 };
 pub use firms::{FirmsImportIds, FirmsImportStart, FirmsPersistenceResult, FirmsTerminalState};
 pub use quality::{

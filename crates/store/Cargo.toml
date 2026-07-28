@@ -17,6 +17,7 @@ sqlx.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+dataset = { path = "../dataset" }
 dotenvy.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true

@@ -25,6 +25,16 @@ pub struct HumanDatasetCandidateEvent {
     pub certain_duplicate_non_anchor: bool,
 }
 
+/// One ignition event of any cause, for the phase 3B.4 negative-sampling
+/// exclusion-window experiment only.
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct AnyCauseEventForNegativeDesign {
+    pub h3: i64,
+    pub occurred_on_local: NaiveDate,
+    pub cause_category: String,
+    pub geographic_category: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct FeatureSnapshotSpec {
     pub family: String,
@@ -271,6 +281,36 @@ impl Store {
         sqlx::query_as::<_, (i64, NaiveDate)>(
             "SELECT DISTINCT h3, occurred_on_local FROM fire.ignition_events
              WHERE occurred_on_local BETWEEN $1 AND $2",
+        )
+        .bind(period_start)
+        .bind(period_end)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    /// Every ignition event of any cause with its geographic-quality
+    /// category, for the phase 3B.4 negative-sampling exclusion-window
+    /// experiment only (see `dataset::negative_design` and
+    /// `NEGATIVE_SAMPLING_DESIGN.md`). Read-only; not used by
+    /// `build_human_dataset`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `PostgreSQL` rejects the read.
+    pub async fn all_events_with_geographic_quality(
+        &self,
+        period_start: NaiveDate,
+        period_end: NaiveDate,
+    ) -> Result<Vec<AnyCauseEventForNegativeDesign>, StoreError> {
+        sqlx::query_as::<_, AnyCauseEventForNegativeDesign>(
+            "SELECT event.h3, event.occurred_on_local, event.cause_category,
+                    geo.geographic_category
+             FROM fire.ignition_events AS event
+             JOIN validation.event_geographic_quality AS geo
+                ON geo.ignition_event_id = event.id
+             WHERE event.occurred_on_local BETWEEN $1 AND $2
+             ORDER BY event.occurred_on_local, event.h3",
         )
         .bind(period_start)
         .bind(period_end)
