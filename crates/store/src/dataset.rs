@@ -126,7 +126,7 @@ pub struct DatasetVersionSpec {
 }
 
 /// The subset of an existing `ml.dataset_versions` row that defines the
-/// dataset (excludes name/description/notes/code_version/author, which may
+/// dataset (excludes `name`/`description`/`notes`/`code_version`/`author`, which may
 /// legitimately vary across a rebuild without it being a different dataset).
 #[derive(Clone, Debug, sqlx::FromRow)]
 struct ExistingDatasetVersionDefinition {
@@ -317,6 +317,34 @@ impl Store {
         .fetch_all(&self.pool)
         .await
         .map_err(StoreError::from)
+    }
+
+    /// Every successfully parsed FIRMS observation's `(latitude, longitude,
+    /// acq_date)`, extracted from `raw.firms_observations.payload`, for the
+    /// phase 3B.4 FIRMS-contamination check only (mission section F: FIRMS
+    /// is never a label, only evaluated as a potential cautionary
+    /// exclusion filter). Read-only; not used by `build_human_dataset`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `PostgreSQL` rejects the read.
+    pub async fn firms_points_for_negative_design_check(
+        &self,
+    ) -> Result<Vec<((f64, f64), NaiveDate)>, StoreError> {
+        let rows = sqlx::query_as::<_, (f64, f64, NaiveDate)>(
+            "SELECT (payload->>'latitude')::double precision,
+                    (payload->>'longitude')::double precision,
+                    (payload->>'acq_date')::date
+             FROM raw.firms_observations
+             WHERE parsing_status = 'parsed'
+               AND payload ? 'latitude' AND payload ? 'longitude' AND payload ? 'acq_date'",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(lat, lon, date)| ((lat, lon), date))
+            .collect())
     }
 
     /// Registers a feature-snapshot metadata record, or returns the

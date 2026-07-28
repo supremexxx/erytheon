@@ -597,39 +597,6 @@ pub async fn build_human_dataset(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::is_low_confidence_geographic_category;
-
-    /// Regression test for the geographic-category bug found during the
-    /// pilot build: the strict-mode filter must key off the categories
-    /// `quality::assess_geography` actually assigns today
-    /// (`municipality_centroid_probable`, `precision_undocumented`,
-    /// `rounded_coordinate_probable`), not the aspirational, never-emitted
-    /// `precise_reported`/`estimated_reported` categories from the phase
-    /// 3A specification.
-    #[test]
-    fn strict_mode_rejects_only_the_genuinely_low_confidence_real_categories() {
-        assert!(
-            !is_low_confidence_geographic_category("precision_undocumented"),
-            "precision_undocumented is the achievable ceiling of quality today \
-             and must not be auto-rejected from strict mode"
-        );
-        assert!(is_low_confidence_geographic_category(
-            "municipality_centroid_probable"
-        ));
-        assert!(is_low_confidence_geographic_category(
-            "rounded_coordinate_probable"
-        ));
-    }
-
-    #[test]
-    fn strict_mode_selection_is_not_driven_by_fictional_categories() {
-        assert!(!is_low_confidence_geographic_category("precise_reported"));
-        assert!(!is_low_confidence_geographic_category("estimated_reported"));
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn build_row(
     h3: i64,
@@ -694,5 +661,38 @@ fn pending_exclusion(
         rule_version: Some("v1_pilot".to_owned()),
         details: json!({}),
         reintegration_possible: true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_low_confidence_geographic_category;
+
+    /// Regression test for the geographic-category bug found during the
+    /// pilot build: the strict-mode filter must key off the categories
+    /// `quality::assess_geography` actually assigns today
+    /// (`municipality_centroid_probable`, `precision_undocumented`,
+    /// `rounded_coordinate_probable`), not the aspirational, never-emitted
+    /// `precise_reported`/`estimated_reported` categories from the phase
+    /// 3A specification.
+    #[test]
+    fn strict_mode_rejects_only_the_genuinely_low_confidence_real_categories() {
+        assert!(
+            !is_low_confidence_geographic_category("precision_undocumented"),
+            "precision_undocumented is the achievable ceiling of quality today \
+             and must not be auto-rejected from strict mode"
+        );
+        assert!(is_low_confidence_geographic_category(
+            "municipality_centroid_probable"
+        ));
+        assert!(is_low_confidence_geographic_category(
+            "rounded_coordinate_probable"
+        ));
+    }
+
+    #[test]
+    fn strict_mode_selection_is_not_driven_by_fictional_categories() {
+        assert!(!is_low_confidence_geographic_category("precise_reported"));
+        assert!(!is_low_confidence_geographic_category("estimated_reported"));
     }
 }

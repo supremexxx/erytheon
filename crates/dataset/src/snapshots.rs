@@ -21,10 +21,10 @@ pub struct SnapshotWindow {
 /// `available_from` is after `as_of` (no future information). When
 /// several snapshots are eligible, the most recently available one wins.
 #[must_use]
-pub fn select_snapshot_for_date<'a>(
-    candidates: &'a [SnapshotWindow],
+pub fn select_snapshot_for_date(
+    candidates: &[SnapshotWindow],
     as_of: DateTime<Utc>,
-) -> Option<&'a SnapshotWindow> {
+) -> Option<&SnapshotWindow> {
     candidates
         .iter()
         .filter(|candidate| candidate.available_from <= as_of)

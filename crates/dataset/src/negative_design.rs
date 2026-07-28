@@ -97,12 +97,27 @@ impl ExclusionStrategy {
 /// around one `event` (h3, date). Pure H3 grid-distance and calendar-day
 /// arithmetic; never touches the database.
 ///
+/// `candidate_h3` and `event_h3` are normalized to a common resolution
+/// before any spatial comparison (via [`CellIndex::parent`], coarsening the
+/// finer of the two down to the coarser one's resolution). This matters in
+/// this codebase specifically: `public.cell_static` (the source of negative
+/// candidates, via `sample_combustible_cells`) is stored at H3 resolution 9
+/// today, while `fire.ignition_events` (the exclusion event set) is at
+/// resolution 8 — a real, pre-existing mismatch discovered during the
+/// phase 3B.4 audit (see `PHASE3B4_NEGATIVE_SAMPLING_REPORT.md`). Comparing
+/// two `CellIndex` values of different resolutions directly — by equality
+/// or via `grid_distance` — is either always false or always an error, so
+/// skipping normalization here would silently make every strategy appear
+/// to exclude almost nothing, which is exactly what the first (unfixed)
+/// version of this experiment measured.
+///
 /// # Errors
 ///
 /// Returns an error (the underlying H3 library's message) if the grid
-/// distance cannot be computed (cells on incompatible base cells or
-/// straddling a pentagon); callers should treat that as "cannot rule out
-/// overlap" rather than "not excluded".
+/// distance or the resolution normalization cannot be computed (cells on
+/// incompatible base cells, straddling a pentagon, or the finer resolution
+/// somehow not a descendant of the coarser one); callers should treat that
+/// as "cannot rule out overlap" rather than "not excluded".
 pub fn is_within_window(
     candidate_h3: CellIndex,
     candidate_date: NaiveDate,
@@ -114,6 +129,7 @@ pub fn is_within_window(
     if day_gap > window.day_radius {
         return Ok(false);
     }
+    let (candidate_h3, event_h3) = normalize_to_common_resolution(candidate_h3, event_h3)?;
     if candidate_h3 == event_h3 {
         return Ok(true);
     }
@@ -124,6 +140,30 @@ pub fn is_within_window(
         .grid_distance(event_h3)
         .map_err(|error| error.to_string())?;
     Ok(i64::from(distance) <= i64::from(window.k_ring))
+}
+
+/// Coarsens whichever of `a`/`b` has the finer H3 resolution down to the
+/// other's resolution, so the pair can be compared by equality or
+/// `grid_distance`. A no-op when both are already the same resolution.
+fn normalize_to_common_resolution(
+    a: CellIndex,
+    b: CellIndex,
+) -> Result<(CellIndex, CellIndex), String> {
+    match a.resolution().cmp(&b.resolution()) {
+        std::cmp::Ordering::Equal => Ok((a, b)),
+        std::cmp::Ordering::Greater => {
+            let coarsened = a
+                .parent(b.resolution())
+                .ok_or("cannot coarsen candidate cell to the event's resolution")?;
+            Ok((coarsened, b))
+        }
+        std::cmp::Ordering::Less => {
+            let coarsened = b
+                .parent(a.resolution())
+                .ok_or("cannot coarsen event cell to the candidate's resolution")?;
+            Ok((a, coarsened))
+        }
+    }
 }
 
 /// The stratification key for one candidate: month and a coarser H3 "parent"
@@ -205,6 +245,11 @@ const fn mix64(mut x: u64) -> u64 {
 /// Never panics; a stratum key present only in one of the two maps is
 /// treated as having zero of the missing side.
 #[must_use]
+// This is a design/experimental helper called with the standard hasher
+// from a small number of known call sites (not a hasher-agnostic public
+// API), so generalizing over BuildHasher would add generic-parameter
+// noise without a real caller that needs it.
+#[allow(clippy::implicit_hasher)]
 pub fn stratified_select<K: Ord + Clone + std::hash::Hash + Eq>(
     candidates_by_stratum: &std::collections::HashMap<K, Vec<(i64, NaiveDate)>>,
     positive_counts_by_stratum: &std::collections::HashMap<K, usize>,
@@ -223,7 +268,14 @@ pub fn stratified_select<K: Ord + Clone + std::hash::Hash + Eq>(
         if *positive_count == 0 {
             continue;
         }
-        #[allow(clippy::cast_precision_loss)]
+        // quota is a rounded share of a non-negative target_total, so it is
+        // always >= 0 and fits usize; the f64 arithmetic only loses
+        // precision far beyond any realistic candidate count.
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_sign_loss,
+            clippy::cast_possible_truncation
+        )]
         let quota = ((*positive_count as f64 / total_positives as f64) * target_total as f64)
             .round() as usize;
         let Some(candidates) = candidates_by_stratum.get(stratum) else {
@@ -278,6 +330,85 @@ mod tests {
             .find(|candidate| *candidate != event)
             .unwrap();
         assert!(!is_within_window(neighbor, d(2023, 6, 1), event, d(2023, 6, 1), window).unwrap());
+    }
+
+    /// Regression test for the phase 3B.4 audit finding: `cell_static`
+    /// (candidates) is resolution 9, `fire.ignition_events` (events) is
+    /// resolution 8. A candidate that is genuinely the resolution-9 child
+    /// of an event's resolution-8 cell must still be recognized as the
+    /// exact same location under N0, not silently treated as unrelated.
+    #[test]
+    fn cross_resolution_candidate_on_the_same_location_as_the_event_is_recognized() {
+        let event_res8 = cell(45.0, 5.0, 8);
+        let candidate_res9 = cell(45.0, 5.0, 9);
+        assert_eq!(
+            candidate_res9.parent(Resolution::try_from(8).unwrap()),
+            Some(event_res8),
+            "test setup: the resolution-9 point must actually be a child of the resolution-8 cell"
+        );
+        let window = ExclusionStrategy::N0.window(None);
+        assert!(
+            is_within_window(
+                candidate_res9,
+                d(2023, 6, 1),
+                event_res8,
+                d(2023, 6, 1),
+                window
+            )
+            .unwrap(),
+            "a resolution-9 candidate over the same location as a resolution-8 event must be excluded under N0"
+        );
+    }
+
+    #[test]
+    fn cross_resolution_candidate_outside_the_window_is_still_not_excluded() {
+        let event_res8 = cell(45.0, 5.0, 8);
+        let far_candidate_res9 = cell(46.0, 6.0, 9);
+        let window = ExclusionStrategy::N2.window(None);
+        assert!(
+            !is_within_window(
+                far_candidate_res9,
+                d(2023, 6, 1),
+                event_res8,
+                d(2023, 6, 1),
+                window
+            )
+            .unwrap(),
+            "normalizing resolutions must not turn an unrelated, distant cell into a false exclusion"
+        );
+    }
+
+    #[test]
+    fn n2_excludes_a_kring2_neighbor_that_kring1_would_miss() {
+        let event = cell(45.0, 5.0, 8);
+        let grid = grid::H3Grid::new(8).unwrap();
+        let kring1: std::collections::HashSet<_> = grid.neighbors(event, 1).into_iter().collect();
+        let kring2_only = grid
+            .neighbors(event, 2)
+            .into_iter()
+            .find(|candidate| !kring1.contains(candidate))
+            .expect("a k-ring-2-only neighbor must exist");
+        let n1_window = ExclusionStrategy::N1.window(None);
+        let n2_window = ExclusionStrategy::N2.window(None);
+        assert!(
+            !is_within_window(kring2_only, d(2023, 6, 1), event, d(2023, 6, 1), n1_window).unwrap(),
+            "N1 (k-ring 1) must not exclude a cell that is only within k-ring 2"
+        );
+        assert!(
+            is_within_window(kring2_only, d(2023, 6, 1), event, d(2023, 6, 1), n2_window).unwrap(),
+            "N2 (k-ring 2) must exclude a cell that is within k-ring 2"
+        );
+    }
+
+    #[test]
+    fn window_respects_the_day_radius_boundary_across_a_month_and_year_change() {
+        let event = cell(45.0, 5.0, 8);
+        let window = ExclusionStrategy::N2.window(None); // +/- 3 days
+        // 2023-12-30 is 2 days before 2024-01-01: within the +/-3 day radius,
+        // crossing both a month and a year boundary.
+        assert!(is_within_window(event, d(2023, 12, 30), event, d(2024, 1, 1), window).unwrap());
+        // 2023-12-27 is 5 days before 2024-01-01: outside the +/-3 day radius.
+        assert!(!is_within_window(event, d(2023, 12, 27), event, d(2024, 1, 1), window).unwrap());
     }
 
     #[test]
