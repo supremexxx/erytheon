@@ -7,6 +7,7 @@ mod export;
 mod firms_pipeline;
 mod forecast;
 mod human_model;
+mod model_experiments;
 mod quality_pipeline;
 mod risk_pipeline;
 mod scheduler;
@@ -148,6 +149,15 @@ enum Command {
         seed: i64,
         #[arg(long, default_value_t = 3)]
         ratio: u32,
+    },
+    /// Runs the phase 3B.7 experimental training/calibration/comparison.
+    /// Never replaces the active v1 model; artifacts go to an isolated,
+    /// disposable directory only.
+    RunModelExperiments {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value_t = 2_026_071)]
+        seed: i64,
     },
     /// Pre-aggregates regional OSM PBF extracts into a reusable H3 cache.
     OsmAggregate {
@@ -297,6 +307,13 @@ async fn main() -> anyhow::Result<()> {
                     seed,
                     ratio,
                 },
+            )
+            .await
+        }
+        Command::RunModelExperiments { dry_run, seed } => {
+            model_experiments::run_experiments(
+                config,
+                model_experiments::ExperimentOptions { dry_run, seed },
             )
             .await
         }

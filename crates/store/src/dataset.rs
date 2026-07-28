@@ -61,6 +61,17 @@ pub struct FeatureSnapshotSpec {
     pub notes: Option<String>,
 }
 
+/// One dataset row's fields needed for phase 3B.7 experimental training:
+/// spatial/temporal keys, label, and the real feature bundle.
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct TrainingRow {
+    pub h3: i64,
+    pub local_date: NaiveDate,
+    pub split: String,
+    pub label: i16,
+    pub features: Value,
+}
+
 /// One historical-calendar day's queryable fields, for phase 3B.5's
 /// candidate builder to use the real calendar instead of placeholder
 /// zeros.
@@ -320,6 +331,52 @@ impl Store {
         )
         .bind(logical_id)
         .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    /// Every row (`h3`, `local_date`, `split`, `label`, `features` JSON)
+    /// for one dataset version, identified by `logical_id`. Read-only,
+    /// for the phase 3B.7 experimental training pipeline only. Never
+    /// used by `build_candidate_datasets`, never mutates `ml.dataset_*`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `PostgreSQL` rejects the read.
+    pub async fn dataset_rows_for_training(
+        &self,
+        logical_id: &str,
+    ) -> Result<Vec<TrainingRow>, StoreError> {
+        sqlx::query_as::<_, TrainingRow>(
+            "SELECT dr.h3, dr.local_date, dr.split, dr.label, dr.features
+             FROM ml.dataset_rows dr
+             JOIN ml.dataset_versions dv ON dv.id = dr.dataset_version_id
+             WHERE dv.logical_id = $1
+             ORDER BY dr.deterministic_key",
+        )
+        .bind(logical_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    /// A cheap, order-independent fingerprint of one dataset version's
+    /// current row set, for the phase 3B.7 leakage check "checksum
+    /// identical before and after training" (training never writes to
+    /// `ml.dataset_rows`, so this must be unchanged across an experiment).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `PostgreSQL` rejects the read.
+    pub async fn dataset_rows_fingerprint(&self, logical_id: &str) -> Result<String, StoreError> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT md5(string_agg(dr.deterministic_key || ':' || dr.row_checksum, ',' ORDER BY dr.deterministic_key))
+             FROM ml.dataset_rows dr
+             JOIN ml.dataset_versions dv ON dv.id = dr.dataset_version_id
+             WHERE dv.logical_id = $1",
+        )
+        .bind(logical_id)
+        .fetch_one(&self.pool)
         .await
         .map_err(StoreError::from)
     }

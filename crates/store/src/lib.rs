@@ -19,7 +19,7 @@ pub use dataset::{
     AnyCauseEventForNegativeDesign, CalendarDayLookup, CalendarRuleVersion, DatasetBuildCounts,
     DatasetEventLinkRecord, DatasetExclusionRecord, DatasetRowRecord, DatasetVersionSpec,
     DatasetVersionSummary, FeatureSnapshotSpec, HistoricalCalendarDayRecord,
-    HumanDatasetCandidateEvent, dataset_row_count,
+    HumanDatasetCandidateEvent, TrainingRow, dataset_row_count,
 };
 pub use firms::{FirmsImportIds, FirmsImportStart, FirmsPersistenceResult, FirmsTerminalState};
 pub use quality::{
