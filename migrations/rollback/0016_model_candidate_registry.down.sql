@@ -16,6 +16,17 @@ BEGIN;
 
 DO $$
 BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'ml'
+          AND table_name = 'model_candidate_registry'
+          AND column_name = 'seed'
+    ) THEN
+        RAISE EXCEPTION
+            'refusing out-of-order rollback: migration 0017 must be rolled back before 0016';
+    END IF;
+
     IF EXISTS (SELECT 1 FROM ml.model_candidate_registry) THEN
         RAISE EXCEPTION
             'refusing destructive rollback: model candidate registry data exists';

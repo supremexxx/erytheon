@@ -424,3 +424,252 @@ async fn rollback_0015_refuses_destructively_once_a_dataset_version_exists() {
 
     drop_temp_database(&admin_url, db_name).await;
 }
+
+async fn table_exists(pool: &PgPool, schema: &str, table: &str) -> bool {
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM information_schema.tables
+             WHERE table_schema = $1 AND table_name = $2
+         )",
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_one(pool)
+    .await
+    .expect("check table existence")
+}
+
+async fn column_exists(pool: &PgPool, schema: &str, table: &str, column: &str) -> bool {
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM information_schema.columns
+             WHERE table_schema = $1 AND table_name = $2 AND column_name = $3
+         )",
+    )
+    .bind(schema)
+    .bind(table)
+    .bind(column)
+    .fetch_one(pool)
+    .await
+    .expect("check column existence")
+}
+
+#[tokio::test]
+async fn rollback_0017_then_0016_succeeds_only_in_reverse_order_when_empty() {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping database integration test: DATABASE_URL is not configured");
+        return;
+    };
+    let db_name = "erytheon_rollback_test_0016_0017_empty";
+    let temp_url = create_and_migrate_temp_database(&admin_url, db_name).await;
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+
+    let out_of_order = run_psql(
+        &temp_url,
+        &migrations_root().join("0016_model_candidate_registry.down.sql"),
+    );
+    assert!(
+        !out_of_order.status.success(),
+        "0016 must refuse while migration 0017 objects still exist"
+    );
+    assert!(
+        String::from_utf8_lossy(&out_of_order.stderr).contains("0017 must be rolled back"),
+        "out-of-order failure must explain the required order: {}",
+        String::from_utf8_lossy(&out_of_order.stderr)
+    );
+    assert!(
+        table_exists(&pool, "ml", "model_candidate_registry").await,
+        "out-of-order rollback must preserve the registry"
+    );
+    assert!(
+        column_exists(&pool, "ml", "model_candidate_registry", "seed").await,
+        "out-of-order rollback must preserve 0017 objects"
+    );
+
+    let rollback_0017 = run_psql(
+        &temp_url,
+        &migrations_root().join("0017_model_candidate_registry_identity.down.sql"),
+    );
+    assert!(
+        rollback_0017.status.success(),
+        "0017 rollback must succeed on an empty registry: {}",
+        String::from_utf8_lossy(&rollback_0017.stderr)
+    );
+    assert!(
+        table_exists(&pool, "ml", "model_candidate_registry").await,
+        "0016 registry must remain after rolling back 0017"
+    );
+    assert!(
+        !column_exists(&pool, "ml", "model_candidate_registry", "seed").await,
+        "0017 seed column must be removed"
+    );
+
+    let rollback_0016 = run_psql(
+        &temp_url,
+        &migrations_root().join("0016_model_candidate_registry.down.sql"),
+    );
+    assert!(
+        rollback_0016.status.success(),
+        "0016 rollback must succeed after 0017 on an empty registry: {}",
+        String::from_utf8_lossy(&rollback_0016.stderr)
+    );
+    assert!(
+        !table_exists(&pool, "ml", "model_candidate_registry").await,
+        "0016 registry must be removed"
+    );
+    let ml_schema_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM information_schema.schemata WHERE schema_name = 'ml'
+         )",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("check ml schema");
+    assert!(ml_schema_exists, "unrelated ml schema must remain intact");
+
+    pool.close().await;
+    drop_temp_database(&admin_url, db_name).await;
+}
+
+#[tokio::test]
+async fn rollback_0017_refuses_and_preserves_a_registered_candidate() {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping database integration test: DATABASE_URL is not configured");
+        return;
+    };
+    let db_name = "erytheon_rollback_test_0017_populated";
+    let temp_url = create_and_migrate_temp_database(&admin_url, db_name).await;
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+
+    sqlx::query(
+        "INSERT INTO ml.model_candidate_registry (
+             model_family, model_name, artifact_version, status, git_commit,
+             dataset_logical_id, dataset_row_fingerprint, seed, artifact,
+             artifact_checksum, metrics, scientific_interpretation, known_limitations
+         ) VALUES (
+             'rollback_fixture', 'rollback_fixture', 1, 'inactive', 'fixture',
+             'rollback_fixture', 'fixture', 17, '{}', 'fixture', '{}',
+             'fixture', '[]'
+         )",
+    )
+    .execute(&pool)
+    .await
+    .expect("insert 0017 fixture");
+
+    let output = run_psql(
+        &temp_url,
+        &migrations_root().join("0017_model_candidate_registry_identity.down.sql"),
+    );
+    assert!(
+        !output.status.success(),
+        "0017 rollback must refuse when a candidate exists"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("refusing destructive rollback"),
+        "0017 guard must return a useful error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM ml.model_candidate_registry")
+            .fetch_one(&pool)
+            .await
+            .expect("count preserved candidate"),
+        1
+    );
+    assert!(
+        column_exists(&pool, "ml", "model_candidate_registry", "seed").await,
+        "failed rollback must preserve the seed column"
+    );
+    let identity_constraint_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM pg_constraint
+             WHERE conname = 'model_candidate_registry_logical_identity_unique'
+         )",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("check identity constraint");
+    assert!(
+        identity_constraint_exists,
+        "failed rollback must preserve the identity constraint"
+    );
+
+    pool.close().await;
+    drop_temp_database(&admin_url, db_name).await;
+}
+
+#[tokio::test]
+async fn rollback_0016_refuses_and_preserves_a_registered_candidate() {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping database integration test: DATABASE_URL is not configured");
+        return;
+    };
+    let db_name = "erytheon_rollback_test_0016_populated";
+    let temp_url = create_and_migrate_temp_database(&admin_url, db_name).await;
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+
+    let rollback_0017 = run_psql(
+        &temp_url,
+        &migrations_root().join("0017_model_candidate_registry_identity.down.sql"),
+    );
+    assert!(
+        rollback_0017.status.success(),
+        "0017 must be removed before testing the populated 0016 guard: {}",
+        String::from_utf8_lossy(&rollback_0017.stderr)
+    );
+    sqlx::query(
+        "INSERT INTO ml.model_candidate_registry (
+             model_family, model_name, artifact_version, status, git_commit,
+             dataset_logical_id, dataset_row_fingerprint, artifact,
+             artifact_checksum, metrics, scientific_interpretation, known_limitations
+         ) VALUES (
+             'rollback_fixture', 'rollback_fixture', 1, 'inactive', 'fixture',
+             'rollback_fixture', 'fixture', '{}', 'fixture', '{}',
+             'fixture', '[]'
+         )",
+    )
+    .execute(&pool)
+    .await
+    .expect("insert 0016 fixture");
+
+    let output = run_psql(
+        &temp_url,
+        &migrations_root().join("0016_model_candidate_registry.down.sql"),
+    );
+    assert!(
+        !output.status.success(),
+        "0016 rollback must refuse when a candidate exists"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("refusing destructive rollback"),
+        "0016 guard must return a useful error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM ml.model_candidate_registry")
+            .fetch_one(&pool)
+            .await
+            .expect("count preserved candidate"),
+        1
+    );
+    assert!(
+        table_exists(&pool, "ml", "model_candidate_registry").await,
+        "failed rollback must preserve the registry table"
+    );
+    let family_index_exists: bool = sqlx::query_scalar(
+        "SELECT to_regclass('ml.model_candidate_registry_family_idx') IS NOT NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("check family index");
+    assert!(
+        family_index_exists,
+        "failed rollback must preserve the registry index"
+    );
+
+    pool.close().await;
+    drop_temp_database(&admin_url, db_name).await;
+}
