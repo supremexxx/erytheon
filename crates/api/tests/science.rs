@@ -156,6 +156,21 @@ fn science_frontend_stabilizers_are_versioned() {
             && !SCIENCE_JS.contains("Cartographie scientifique non disponible"),
         "overview map controls must preserve the production horizon and threshold contract"
     );
+    assert!(
+        SCIENCE_HTML.contains("UI 4A.4c")
+            && SCIENCE_JS.contains("presentation: \"scientific\"")
+            && DASHBOARD_JS.contains("pointGeometryMaxZoom")
+            && DASHBOARD_JS.contains("presentation = \"operational\"")
+            && DASHBOARD_JS.contains("radius: 4 + score * 9"),
+        "the science map needs its restrained presentation without changing operational defaults"
+    );
+    assert!(
+        SCIENCE_CSS.contains("/* Phase 4A.4c — final UI/UX fidelity pass */")
+            && SCIENCE_CSS.contains("grid-column: span 8")
+            && SCIENCE_CSS.contains("height: 420px")
+            && SCIENCE_JS.contains("sci-interpretation-context"),
+        "the final fidelity pass must preserve the 8/4 analysis grid and compact evidence panel"
+    );
 }
 
 /// When the console is disabled (the production default), none of the

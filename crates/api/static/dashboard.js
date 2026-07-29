@@ -3,10 +3,12 @@
 
   const INSTANCES = new WeakMap();
 
-  function mountOperationalMap({ root = document } = {}) {
+  function mountOperationalMap({ root = document, presentation = "operational" } = {}) {
     const mapElement = root.querySelector("#map");
     if (!mapElement) return null;
     if (INSTANCES.has(mapElement)) return INSTANCES.get(mapElement);
+    const scientificPresentation = presentation === "scientific";
+    const pointGeometryMaxZoom = scientificPresentation ? 6 : 7;
 
     let AOI = { west: 1.68, south: 42.57, east: 3.26, north: 43.46 };
     const SOURCE_NAMES = Object.freeze({
@@ -174,6 +176,38 @@
       };
     }
 
+    function pointStyle(feature) {
+      const score = Number(feature?.properties?.score ?? 0);
+      if (!scientificPresentation) {
+        return {
+          radius: 4 + score * 9,
+          color: "rgba(255,255,255,0.85)",
+          weight: 1,
+          fillColor: scoreColor(score),
+          fillOpacity: 0.82,
+          opacity: 0.7,
+        };
+      }
+      const zoom = map.getZoom();
+      const zoomScale = zoom <= 5 ? 2.4 : zoom === 6 ? 3.6 : 4.8;
+      return {
+        radius: 1.8 + score * zoomScale,
+        color: "rgba(255,255,255,0.76)",
+        weight: 0.8,
+        fillColor: scoreColor(score),
+        fillOpacity: 0.3 + score * 0.2,
+        opacity: 0.78,
+      };
+    }
+
+    function featureStyle(feature) {
+      return feature?.geometry?.type === "Point" ? pointStyle(feature) : scoreStyle(feature);
+    }
+
+    function usesPointGeometry() {
+      return map.getZoom() <= pointGeometryMaxZoom;
+    }
+
     function currentBounds() {
       const bounds = map.getBounds();
       const clipped = {
@@ -235,8 +269,8 @@
         min_score: state.threshold.toFixed(2),
         at: "latest",
         horizon: state.horizon,
-        limit: map.getZoom() <= 7 ? "2000" : "5000",
-        geometry: map.getZoom() <= 7 ? "point" : "polygon",
+        limit: usesPointGeometry() ? "2000" : "5000",
+        geometry: usesPointGeometry() ? "point" : "polygon",
       });
       try {
         const collection = await fetchJson(`/risk?${query}`, { signal: controller.signal });
@@ -247,15 +281,7 @@
         state.riskLayer = L.geoJSON(collection, {
           style: scoreStyle,
           pointToLayer: (feature, latlng) => {
-            const score = Number(feature?.properties?.score || 0);
-            return L.circleMarker(latlng, {
-              radius: 4 + score * 9,
-              color: "rgba(255,255,255,0.85)",
-              weight: 1,
-              fillColor: scoreColor(score),
-              fillOpacity: 0.82,
-              opacity: 0.7,
-            });
+            return L.circleMarker(latlng, pointStyle(feature));
           },
           onEachFeature: (feature, layer) => {
             const properties = feature.properties || {};
@@ -264,9 +290,11 @@
             layer.bindTooltip(tooltip, tooltipOptions);
             layer.on({
               click: () => selectCell(properties.h3, layer),
-              mouseover: () => layer.setStyle({ weight: 2.2, fillOpacity: 0.9 }),
+              mouseover: () => layer.setStyle(scientificPresentation
+                ? { weight: 1.4, fillOpacity: 0.68, opacity: 0.96 }
+                : { weight: 2.2, fillOpacity: 0.9 }),
               mouseout: () => {
-                if (layer !== state.selectedLayer) layer.setStyle(scoreStyle(feature));
+                if (layer !== state.selectedLayer) layer.setStyle(featureStyle(feature));
               },
             });
           },
@@ -300,7 +328,7 @@
       );
       const highest = sorted[0]?.properties;
       elements.visibleCells.textContent = formatInteger(features.length);
-      const unit = map.getZoom() <= 7 ? "points" : (features.length > 1 ? "hexagones" : "hexagone");
+      const unit = usesPointGeometry() ? "points" : (features.length > 1 ? "hexagones" : "hexagone");
       elements.mapCellCount.textContent = `${formatInteger(features.length)} ${unit}${truncated ? " prioritaires" : ""}`;
       if (!highest) {
         elements.maxScore.textContent = "—";
@@ -402,10 +430,12 @@
     async function selectCell(h3, layer) {
       if (!h3) return;
       if (state.selectedLayer && state.selectedLayer !== layer) {
-        state.selectedLayer.setStyle(scoreStyle(state.selectedLayer.feature));
+        state.selectedLayer.setStyle(featureStyle(state.selectedLayer.feature));
       }
       state.selectedLayer = layer;
-      if (layer) layer.setStyle({ color: "#171815", weight: 2.5, fillOpacity: 0.92 });
+      if (layer) layer.setStyle(scientificPresentation
+        ? { color: "#233a2f", weight: 1.8, fillOpacity: 0.74, opacity: 1 }
+        : { color: "#171815", weight: 2.5, fillOpacity: 0.92 });
       elements.detailH3.textContent = h3;
       elements.detailTime.textContent = "Chargement du détail…";
       elements.detailDrawer.classList.add("is-open");
@@ -491,7 +521,7 @@
     function closeDetail() {
       elements.detailDrawer.classList.remove("is-open");
       elements.detailDrawer.setAttribute("aria-hidden", "true");
-      if (state.selectedLayer) state.selectedLayer.setStyle(scoreStyle(state.selectedLayer.feature));
+      if (state.selectedLayer) state.selectedLayer.setStyle(featureStyle(state.selectedLayer.feature));
       state.selectedLayer = null;
     }
 

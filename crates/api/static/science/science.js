@@ -173,7 +173,7 @@
 
   function metricStrip(cells) {
     return `<section class="sci-metric-strip" aria-label="Indicateurs essentiels">${cells.map((cell) => `
-      <article class="sci-metric-tile">
+      <article class="sci-metric-tile sci-metric-${escapeHtml(cell.kind ?? "registry")}">
         <span>${escapeHtml(cell.label)}</span>
         <strong>${escapeHtml(cell.value)}</strong>
         <small>${cell.status ? status(cell.status, cell.tone) : escapeHtml(cell.detail ?? "")}</small>
@@ -188,8 +188,11 @@
           <h2 id="sci-map-title">Risque opérationnel spatial</h2>
           <p><span id="territory-label">Territoire opérationnel</span> · maille H3 <span id="h3-resolution">—</span> · modèle v1</p>
         </div>
-        <div class="sci-map-connection" id="connection-status" role="status">
-          <i aria-hidden="true"></i><span id="connection-label">Connexion…</span>
+        <div class="sci-map-head-context">
+          <div class="sci-map-connection" id="connection-status" role="status">
+            <i aria-hidden="true"></i><span id="connection-label">Connexion…</span>
+          </div>
+          <span class="sci-map-validity"><span id="active-horizon-label">MAINTENANT</span> · <time id="horizon-valid-at">—</time></span>
         </div>
       </header>
 
@@ -202,7 +205,6 @@
             <button type="button" data-horizon="hours_24">+24 h</button>
             <button type="button" data-horizon="hours_48">+48 h</button>
           </div>
-          <span class="sci-map-validity"><span id="active-horizon-label">MAINTENANT</span> · <time id="horizon-valid-at">—</time></span>
         </div>
         <div class="sci-map-threshold">
           <label for="threshold-range"><span class="sci-map-control-label">Seuil de risque</span><output id="threshold-output" for="threshold-range">0,10</output></label>
@@ -451,6 +453,7 @@
       ]);
       updateShellContext(data, sources);
       const weather = findSource(sources, /(open.?meteo|weather|forecast|météo|meteo)/i);
+      const weatherPipeline = pipelines.find((pipeline) => /(open.?meteo|weather|forecast|météo|meteo)/i.test(pipeline.pipeline_name));
       const causeRows = quality.cause_counts.map((row) => ({
         label: CAUSE_LABELS[row.category] ?? row.category,
         value: row.count,
@@ -473,19 +476,20 @@
             label: "Fraîcheur météo",
             value: weather ? fmtAge(weather.last_success) : "Non exposée",
             detail: weather ? `Dernier succès ${fmtShortDate(weather.last_success)}` : "Aucune source météo identifiée",
+            kind: "operational",
           },
-          { label: "Observations FIRMS", value: fmtNum(data.firms_observations_total), detail: fmtShortDate(system.last_firms_success) },
-          { label: "Événements BDIFF", value: fmtNum(data.bdiff_events_total), detail: "Registre actif" },
-          { label: "Cellules statiques", value: fmtNum(data.cell_static_total), detail: "Maillage territorial" },
-          { label: "Modèle actif", value: data.active_model_id == null ? "Aucun" : `v1 · ${data.active_model_id}`, status: "Actif", tone: "ok" },
-          { label: "Candidat", value: data.candidate_model_family ?? "Aucun", status: data.candidate_status ?? "Absent", tone: statusTone(data.candidate_status) },
+          { label: "Observations FIRMS", value: fmtNum(data.firms_observations_total), detail: fmtShortDate(system.last_firms_success), kind: "operational" },
+          { label: "Événements BDIFF", value: fmtNum(data.bdiff_events_total), detail: "Registre actif", kind: "historical" },
+          { label: "Cellules statiques", value: fmtNum(data.cell_static_total), detail: "Maillage territorial", kind: "historical" },
+          { label: "Modèle actif", value: data.active_model_id == null ? "Aucun" : `v1 · ${data.active_model_id}`, status: "Actif", tone: "ok", kind: "serving" },
+          { label: "Candidat", value: data.candidate_model_family ?? "Aucun", status: data.candidate_status ?? "Absent", tone: statusTone(data.candidate_status), kind: "candidate" },
         ])}
 
         <div class="sci-overview-grid">
           <div class="sci-overview-primary">
             ${operationalMapPanel()}
 
-            <section class="sci-panel sci-primary-span-5">
+            <section class="sci-panel sci-interpretation-panel sci-primary-span-5">
               ${panelHeader("Facteurs d'interprétation", "Limites scientifiques actuellement documentées.", "4 ouverts")}
               ${table(
                 ["Facteur", "État", "Impact"],
@@ -499,6 +503,22 @@
                 true,
               )}
               <p class="sci-panel-footnote">Température, humidité, vent, précipitations et indices FWI ne sont pas exposés ; aucune tendance n'est simulée.</p>
+              <div class="sci-interpretation-context">
+                <header>
+                  <h3>Contexte opérationnel exposé</h3>
+                  <span>Lecture seule</span>
+                </header>
+                <dl>
+                  <div><dt>Source météo</dt><dd>${weather?.recent_error ? status("Erreur récente", "danger") : status(weather?.last_success ? "Disponible" : "Non exposée", weather?.last_success ? "ok" : "neutral")}</dd></div>
+                  <div><dt>Dernier succès</dt><dd>${escapeHtml(weather ? fmtShortDate(weather.last_success) : "—")}</dd></div>
+                  <div><dt>Pipeline météo</dt><dd>${weatherPipeline ? status(weatherPipeline.status) : status("Non exposé", "neutral")}</dd></div>
+                  <div><dt>Surface active</dt><dd>Carte v1 · 4 horizons</dd></div>
+                </dl>
+                <nav aria-label="Accès aux analyses liées">
+                  <a href="/science/sources">Examiner les sources <span aria-hidden="true">→</span></a>
+                  <a href="/science/models">Vérifier les modèles <span aria-hidden="true">→</span></a>
+                </nav>
+              </div>
             </section>
 
             <section class="sci-panel sci-primary-span-7">
@@ -942,7 +962,10 @@
       if (connection) connection.textContent = "Carte indisponible";
       return;
     }
-    activeOperationalMap = window.ErytheonOperationalMap.mount({ root: mapRoot });
+    activeOperationalMap = window.ErytheonOperationalMap.mount({
+      root: mapRoot,
+      presentation: "scientific",
+    });
     requestAnimationFrame(() => {
       activeOperationalMap?.resize();
       window.setTimeout(() => activeOperationalMap?.resize(), 180);

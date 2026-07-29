@@ -100,3 +100,25 @@ The browser-validated implementation achieved **8.6/10** overall:
 All ten objective checks above passed. The final normal browser sweep covered
 all eight science routes and the four target viewports without application
 console errors, accidental viewport overflow or duplicate Leaflet controls.
+
+## External side-by-side review correction
+
+The 8.6/10 result above records the Phase 4A.4b internal rubric. A subsequent
+side-by-side review against the supplied reference found that this internal
+score overstated the visible fidelity:
+
+| Category | External review |
+| --- | ---: |
+| Structure | 8.5 / 10 |
+| Functionality | 9 / 10 |
+| Scientific credibility | 9 / 10 |
+| Visual fidelity | 7 / 10 |
+| Global UX quality | 7.5 / 10 |
+| Liquid glass material | 6.5 / 10 |
+
+That correction supersedes the 4A.4b fidelity interpretation and is the
+baseline for Phase 4A.4c. The final pass targets the reviewed causes directly:
+oversized map points, excessive map height, empty interpretation space, heavy
+shell chrome, uniform KPIs, weak background depth, a narrow context column and
+dispersed map controls. The implementation evidence and measurements are
+recorded in `PHASE4A4C_FINAL_UI_UX_FIDELITY_REPORT.md`.
