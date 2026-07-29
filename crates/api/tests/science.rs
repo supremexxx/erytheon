@@ -18,8 +18,10 @@ use tokio::sync::broadcast;
 use tower::ServiceExt;
 
 const SCIENCE_CSS: &str = include_str!("../static/science/science.css");
+const SCIENCE_HTML: &str = include_str!("../static/science/index.html");
 const SCIENCE_JS: &str = include_str!("../static/science/science.js");
 const SCIENCE_PHASES: &str = include_str!("../static/science/phases.json");
+const DASHBOARD_JS: &str = include_str!("../static/dashboard.js");
 
 async fn connect() -> Option<Store> {
     dotenvy::dotenv().ok();
@@ -134,6 +136,25 @@ fn science_frontend_stabilizers_are_versioned() {
         SCIENCE_PHASES.contains("\"id\": \"phase4a3\"")
             && !SCIENCE_PHASES.contains("Comparaison v1 non encore réalisée"),
         "progress must include the current stabilization phase and omit resolved risks"
+    );
+    assert!(
+        SCIENCE_HTML.contains("leaflet@1.9.4")
+            && SCIENCE_HTML.contains("<script src=\"/dashboard.js\" defer></script>")
+            && SCIENCE_JS.contains("operationalMapPanel()"),
+        "the scientific overview must load and render the audited production map component"
+    );
+    assert!(
+        DASHBOARD_JS.contains("window.ErytheonOperationalMap")
+            && DASHBOARD_JS.contains("mountOperationalMap")
+            && DASHBOARD_JS.contains("destroy:")
+            && SCIENCE_JS.contains("destroyOperationalMap()"),
+        "the operational dashboard and scientific overview need one explicit map lifecycle"
+    );
+    assert!(
+        SCIENCE_JS.contains("id=\"threshold-range\"")
+            && SCIENCE_JS.contains("data-horizon=\"hours_48\"")
+            && !SCIENCE_JS.contains("Cartographie scientifique non disponible"),
+        "overview map controls must preserve the production horizon and threshold contract"
     );
 }
 
