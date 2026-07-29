@@ -184,10 +184,20 @@
     "id": "phase4a3",
     "label": "Phase 4A.3",
     "title": "Stabilisation opérationnelle",
+    "status": "en production",
+    "commits": ["e988147", "36027bf", "7caa6cc"],
+    "summary": "Audit des données réelles, de la sécurité, des performances et de l'ergonomie ; corrections ciblées déployées sans nouvelle capacité scientifique.",
+    "environment": "production",
+    "production_affected": true
+  },
+  {
+    "id": "phase4a4",
+    "label": "Phase 4A.4",
+    "title": "Dashboard scientifique premium",
     "status": "en cours",
     "commits": [],
-    "summary": "Audit des données réelles, de la sécurité, des performances et de l'ergonomie sans nouvelle capacité scientifique.",
-    "environment": "production",
+    "summary": "Reproduction fidèle de la composition validée, uniquement dans la couche de présentation et avec les données réelles déjà exposées.",
+    "environment": "isolée",
     "production_affected": false
   },
   {
