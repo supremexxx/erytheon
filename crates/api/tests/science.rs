@@ -17,6 +17,10 @@ use store::Store;
 use tokio::sync::broadcast;
 use tower::ServiceExt;
 
+const SCIENCE_CSS: &str = include_str!("../static/science/science.css");
+const SCIENCE_JS: &str = include_str!("../static/science/science.js");
+const SCIENCE_PHASES: &str = include_str!("../static/science/phases.json");
+
 async fn connect() -> Option<Store> {
     dotenvy::dotenv().ok();
     let Ok(database_url) = std::env::var("DATABASE_URL") else {
@@ -105,6 +109,32 @@ async fn get_json(app: &axum::Router, uri: &str) -> (StatusCode, Value) {
         serde_json::from_slice(&body).expect("body should be valid JSON")
     };
     (status, json)
+}
+
+#[test]
+fn science_frontend_stabilizers_are_versioned() {
+    assert!(
+        SCIENCE_CSS.contains(".sci-table-scroll") && SCIENCE_CSS.contains("pre.sci-mono"),
+        "wide tables need a local scroll container instead of overflowing the viewport"
+    );
+    assert!(
+        SCIENCE_JS.contains("class=\"sci-table-scroll\""),
+        "rendered tables need to use the scroll container"
+    );
+    assert!(
+        SCIENCE_JS.contains("\"focusin\"")
+            && SCIENCE_JS.contains("aria-describedby=\"sci-tooltip-portal\""),
+        "scientific definitions need keyboard-accessible tooltips"
+    );
+    assert!(
+        SCIENCE_JS.contains("aucune version ni aucun build enregistré"),
+        "an empty production dataset registry must not be presented as draft or validated"
+    );
+    assert!(
+        SCIENCE_PHASES.contains("\"id\": \"phase4a3\"")
+            && !SCIENCE_PHASES.contains("Comparaison v1 non encore réalisée"),
+        "progress must include the current stabilization phase and omit resolved risks"
+    );
 }
 
 /// When the console is disabled (the production default), none of the

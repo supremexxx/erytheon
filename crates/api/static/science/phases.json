@@ -107,8 +107,7 @@
     "commits": ["ff84fbd", "24543db"],
     "summary": "Baselines, GBM+isotonic, calibration, comparaison de datasets. Aucun modèle promu à ce stade.",
     "environment": "isolée",
-    "production_affected": false,
-    "risks": ["Comparaison v1 non encore réalisée"]
+    "production_affected": false
   },
   {
     "id": "phase3b8",
@@ -154,11 +153,41 @@
   {
     "id": "phase4a",
     "label": "Phase 4A",
-    "title": "Console scientifique",
+    "title": "Fondation de la console scientifique",
+    "status": "terminé",
+    "commits": ["b2e7f24", "1516c7d", "59afaa7"],
+    "summary": "API et interface de lecture seule exposant l'état réel du projet.",
+    "environment": "isolée",
+    "production_affected": false
+  },
+  {
+    "id": "phase4a1",
+    "label": "Phase 4A.1",
+    "title": "Refonte de l'interface scientifique",
+    "status": "validé",
+    "commits": ["f2e7ad0", "1bc3e60"],
+    "summary": "Hiérarchie, lisibilité, responsive et langage visuel scientifique consolidés.",
+    "environment": "isolée",
+    "production_affected": false
+  },
+  {
+    "id": "phase4a2",
+    "label": "Phase 4A.2",
+    "title": "Déploiement VPS privé",
+    "status": "en production",
+    "commits": ["c5f76d8", "ccc4c9f", "c7b82ba", "8490393", "7f87dda"],
+    "summary": "Console déployée en lecture seule derrière la protection HTTP Basic de Caddy.",
+    "environment": "production",
+    "production_affected": true
+  },
+  {
+    "id": "phase4a3",
+    "label": "Phase 4A.3",
+    "title": "Stabilisation opérationnelle",
     "status": "en cours",
     "commits": [],
-    "summary": "Interface de lecture seule exposant l'état réel du projet.",
-    "environment": "isolée",
+    "summary": "Audit des données réelles, de la sécurité, des performances et de l'ergonomie sans nouvelle capacité scientifique.",
+    "environment": "production",
     "production_affected": false
   },
   {

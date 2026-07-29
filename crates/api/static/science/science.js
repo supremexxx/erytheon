@@ -55,7 +55,7 @@
   function def(key, label) {
     const text = DEFINITIONS[key];
     if (!text) return escapeHtml(label);
-    return `<span class="sci-defterm" data-def="${escapeHtml(text)}" tabindex="0">${escapeHtml(label)}</span>`;
+    return `<span class="sci-defterm" data-def="${escapeHtml(text)}" tabindex="0" aria-describedby="sci-tooltip-portal">${escapeHtml(label)}</span>`;
   }
 
   async function fetchJSON(url) {
@@ -113,9 +113,9 @@
 
   function table(columns, rows, renderRow) {
     if (rows.length === 0) {
-      return `<div class="sci-empty">Aucune donnée pour ce filtre.</div>`;
+      return `<div class="sci-empty">Aucune donnée disponible.</div>`;
     }
-    return `<table class="sci-table"><thead><tr>${columns.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>${rows.map(renderRow).join("")}</tbody></table>`;
+    return `<div class="sci-table-scroll" role="region" aria-label="Tableau de données" tabindex="0"><table class="sci-table"><thead><tr>${columns.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>${rows.map(renderRow).join("")}</tbody></table></div>`;
   }
 
   function riskClass(level) {
@@ -133,6 +133,7 @@
     async overview() {
       const data = await fetchJSON("/api/science/overview");
       const now = fmtDate(new Date().toISOString());
+      const hasDatasets = data.dataset_versions_total > 0;
       const environment = ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)
         ? "validation isolée"
         : "production VPS";
@@ -158,7 +159,13 @@
             [
               { name: "FIRMS", state: data.firms_observations_total > 0 ? "opérationnel" : "aucune donnée", detail: `${fmtNum(data.firms_observations_total)} observations` },
               { name: "BDIFF", state: "validé", detail: `${fmtNum(data.bdiff_events_total)} événements` },
-              { name: "Dataset principal", state: "draft / validated", detail: `${fmtNum(data.dataset_versions_total)} versions, ${fmtNum(data.dataset_builds_total)} builds` },
+              {
+                name: "Dataset principal",
+                state: hasDatasets ? "enregistré" : "aucun",
+                detail: hasDatasets
+                  ? `${fmtNum(data.dataset_versions_total)} versions, ${fmtNum(data.dataset_builds_total)} builds`
+                  : "aucune version ni aucun build enregistré",
+              },
               { name: "Modèle actif", state: "actif", detail: `${fmtNum(data.human_model_versions_total)} version(s) entraînée(s)` },
               { name: "Modèle candidat", state: data.candidate_status ?? "aucun", detail: data.candidate_model_family ?? "—" },
             ],
@@ -413,14 +420,14 @@
         <section class="sci-section">
           <h2>Comparaison métrique (test 2025, population commune)</h2>
           <p class="sci-page-meta">Source : ${escapeHtml(cmp.source)}</p>
-          <table class="sci-table">
+          <div class="sci-table-scroll" role="region" aria-label="Comparaison des modèles" tabindex="0"><table class="sci-table">
             <thead><tr><th>Métrique</th><th>v1</th><th>Candidat</th><th>Écart</th><th>Interprétation</th></tr></thead>
             <tbody>
               <tr><td>${def("roc_auc", "ROC-AUC")}</td><td>${cmp.v1.roc_auc}</td><td>${cmp.candidate.roc_auc}</td><td>${diffCell(cmp.v1.roc_auc, cmp.candidate.roc_auc)}</td><td>classement</td></tr>
               <tr><td>${def("ap", "Average Precision")}</td><td>${cmp.v1.average_precision}</td><td>${cmp.candidate.average_precision}</td><td>${diffCell(cmp.v1.average_precision, cmp.candidate.average_precision)}</td><td>précision-rappel</td></tr>
               <tr><td>${def("lift", "Lift top 10 %")}</td><td>${cmp.v1.lift_at_10pct}</td><td>${cmp.candidate.lift_at_10pct}</td><td>${diffCell(cmp.v1.lift_at_10pct, cmp.candidate.lift_at_10pct)}</td><td>usage opérationnel</td></tr>
             </tbody>
-          </table>
+          </table></div>
           <p class="sci-page-meta">Gain AP candidat − v1 : <strong class="sci-diff-pos">+${cmp.ap_diff_candidate_minus_v1}</strong> (IC 95 % [${cmp.ap_diff_95pct_ci[0]}, ${cmp.ap_diff_95pct_ci[1]}])</p>
         </section>
 
@@ -534,23 +541,46 @@
   window.addEventListener("popstate", () => render(currentRoute()));
 
   const tooltip = document.querySelector("#sci-tooltip-portal");
+  function showTooltip(term) {
+    tooltip.textContent = term.dataset.def;
+    tooltip.hidden = false;
+    const rect = term.getBoundingClientRect();
+    tooltip.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - tooltip.offsetWidth - 8))}px`;
+    tooltip.style.top = `${rect.bottom + 6}px`;
+  }
+
+  function hideTooltip() {
+    tooltip.hidden = true;
+  }
+
   document.addEventListener(
     "mouseover",
     (event) => {
       const term = event.target.closest(".sci-defterm");
       if (!term) return;
-      tooltip.textContent = term.dataset.def;
-      tooltip.hidden = false;
-      const rect = term.getBoundingClientRect();
-      tooltip.style.left = `${rect.left}px`;
-      tooltip.style.top = `${rect.bottom + 6}px`;
+      showTooltip(term);
     },
     true,
   );
   document.addEventListener(
     "mouseout",
     (event) => {
-      if (event.target.closest(".sci-defterm")) tooltip.hidden = true;
+      if (event.target.closest(".sci-defterm")) hideTooltip();
+    },
+    true,
+  );
+  document.addEventListener(
+    "focusin",
+    (event) => {
+      const term = event.target.closest(".sci-defterm");
+      if (term) showTooltip(term);
+    },
+    true,
+  );
+  document.addEventListener(
+    "focusout",
+    (event) => {
+      if (event.target.closest(".sci-defterm")) hideTooltip();
     },
     true,
   );
