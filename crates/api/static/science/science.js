@@ -8,6 +8,8 @@
   const navToggle = document.querySelector(".sci-nav-toggle");
   const navPanel = document.querySelector("#sci-nav-panel");
   const responseCache = new Map();
+  let activeOperationalMap = null;
+  let renderSequence = 0;
 
   const DEFINITIONS = Object.freeze({
     ap: "Average Precision : aire sous la courbe précision/rappel. Plus proche de 1, meilleur classement des positifs.",
@@ -176,6 +178,114 @@
         <strong>${escapeHtml(cell.value)}</strong>
         <small>${cell.status ? status(cell.status, cell.tone) : escapeHtml(cell.detail ?? "")}</small>
       </article>`).join("")}
+    </section>`;
+  }
+
+  function operationalMapPanel() {
+    return `<section class="sci-panel sci-operational-map sci-primary-span-7" aria-labelledby="sci-map-title">
+      <header class="sci-panel-head sci-map-panel-head">
+        <div>
+          <h2 id="sci-map-title">Risque opérationnel spatial</h2>
+          <p><span id="territory-label">Territoire opérationnel</span> · maille H3 <span id="h3-resolution">—</span> · modèle v1</p>
+        </div>
+        <div class="sci-map-connection" id="connection-status" role="status">
+          <i aria-hidden="true"></i><span id="connection-label">Connexion…</span>
+        </div>
+      </header>
+
+      <div class="sci-map-command">
+        <div class="sci-map-horizons">
+          <span class="sci-map-control-label">Horizon</span>
+          <div class="horizon-picker" role="group" aria-label="Échéance de prévision">
+            <button type="button" class="is-active" data-horizon="nowcast">Maintenant</button>
+            <button type="button" data-horizon="hours_6">+6 h</button>
+            <button type="button" data-horizon="hours_24">+24 h</button>
+            <button type="button" data-horizon="hours_48">+48 h</button>
+          </div>
+          <span class="sci-map-validity"><span id="active-horizon-label">MAINTENANT</span> · <time id="horizon-valid-at">—</time></span>
+        </div>
+        <div class="sci-map-threshold">
+          <label for="threshold-range"><span class="sci-map-control-label">Seuil de risque</span><output id="threshold-output" for="threshold-range">0,10</output></label>
+          <input id="threshold-range" type="range" min="0.01" max="0.80" step="0.01" value="0.10" aria-label="Seuil minimum du score">
+        </div>
+        <button class="sci-map-refresh" id="refresh-button" type="button" aria-label="Actualiser la carte">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-14.9-4L3 9m0 0V4m0 5h5M4 13a8.1 8.1 0 0 0 14.9 4L21 15m0 0v5m0-5h-5"></path></svg>
+        </button>
+      </div>
+
+      <div class="sci-map-stage">
+        <div id="map" role="application" aria-label="Carte interactive du risque de départ de feu"></div>
+        <div class="map-toolbar">
+          <span class="map-chip"><i class="pulse-dot" aria-hidden="true"></i><span id="map-status">Synchronisation</span></span>
+          <span class="map-chip map-chip-muted" id="map-cell-count">0 hexagone</span>
+        </div>
+        <div class="map-loading" id="map-loading" aria-live="polite">
+          <span class="loader-ring" aria-hidden="true"></span>
+          <span>Chargement des données…</span>
+        </div>
+        <div class="empty-state" id="empty-state" hidden>
+          <span class="empty-icon" aria-hidden="true">∅</span>
+          <strong>Aucune cellule à ce seuil</strong>
+          <p>Réduisez le seuil ou actualisez la carte.</p>
+        </div>
+
+        <aside class="detail-drawer" id="detail-drawer" aria-label="Détail de la cellule" aria-hidden="true">
+          <button class="drawer-close" id="drawer-close" type="button" aria-label="Fermer le détail">×</button>
+          <div class="drawer-header">
+            <p class="eyebrow">CELLULE SÉLECTIONNÉE</p>
+            <h2 id="detail-h3">—</h2>
+            <p id="detail-time">—</p>
+          </div>
+          <div class="score-overview">
+            <div class="score-gauge" id="score-gauge"><div><strong id="detail-score">—</strong><span>score</span></div></div>
+            <div class="component-bars">
+              <div class="component-row">
+                <span>Conditions feu</span><strong id="physical-value">—</strong>
+                <div class="bar-track"><i id="physical-bar"></i></div>
+              </div>
+              <div class="component-row">
+                <span>Exposition humaine</span><strong id="human-value">—</strong>
+                <div class="bar-track"><i id="human-bar"></i></div>
+              </div>
+            </div>
+          </div>
+          <section class="detail-section">
+            <h3>Indice forêt météo</h3>
+            <div class="fwi-grid" id="fwi-grid"></div>
+          </section>
+          <section class="detail-section">
+            <h3>Facteurs dominants</h3>
+            <ol class="factor-list" id="factor-list"></ol>
+          </section>
+          <section class="detail-section">
+            <div class="detail-section-heading"><h3>Évolution sur 24 h</h3><span id="history-count">—</span></div>
+            <svg class="sparkline" id="history-chart" viewBox="0 0 320 84" role="img" aria-label="Évolution du score sur 24 heures"></svg>
+          </section>
+        </aside>
+      </div>
+
+      <div class="sci-map-facts" aria-label="Synthèse de la carte">
+        <div><span>Score maximal</span><strong id="max-score">—</strong><small id="max-score-label">En attente</small></div>
+        <div><span>Zones visibles</span><strong id="visible-cells">—</strong><small>au-dessus du seuil</small></div>
+        <div><span>Alertes actives</span><strong id="alert-count">—</strong><small id="alert-threshold-label">Seuil ≥ 0,10</small></div>
+        <div><span>Dernier calcul</span><strong><time id="last-update">—</time></strong><small>API opérationnelle v1</small></div>
+      </div>
+
+      <div class="sci-map-legend" aria-label="Légende du risque">
+        <span><i class="risk-low"></i>Faible · 0–0,25</span>
+        <span><i class="risk-moderate"></i>Modéré · 0,25–0,50</span>
+        <span><i class="risk-high"></i>Élevé · 0,50–0,75</span>
+        <span><i class="risk-critical"></i>Critique · 0,75–1</span>
+      </div>
+
+      <div class="sci-map-data-sinks" hidden>
+        <span id="alerts-badge">0</span>
+        <span id="alerts-loading">Chargement</span>
+        <ol id="alert-list"></ol>
+        <span id="source-summary">—</span>
+        <ul id="source-list"></ul>
+      </div>
+      <div class="tooltip-portal" id="tooltip-portal" role="tooltip" hidden></div>
     </section>`;
   }
 
@@ -373,22 +483,7 @@
 
         <div class="sci-overview-grid">
           <div class="sci-overview-primary">
-            <section class="sci-panel sci-spatial-panel sci-primary-span-7">
-              ${panelHeader("Aperçu spatial", "Aucune surface FWI n'est exposée par l'API scientifique actuelle.", "Phase 4B")}
-              <div class="sci-spatial-preview">
-                <div class="sci-spatial-grid" aria-hidden="true"></div>
-                <div class="sci-spatial-message">
-                  <svg viewBox="0 0 48 48" aria-hidden="true"><path d="m24 5 16 9v18l-16 9-16-9V14l16-9Zm0 0v18m16-9-16 9-16-9m8 23V19m16 18V19"></path></svg>
-                  <strong>Cartographie scientifique non disponible</strong>
-                  <p>Le territoire, les couches FWI et les horizons ne peuvent pas être reconstruits sans une API cartographique auditée.</p>
-                </div>
-                <dl class="sci-spatial-facts">
-                  <div><dt>Cellules</dt><dd>${fmtNum(data.cell_static_total)}</dd></div>
-                  <div><dt>Événements</dt><dd>${fmtNum(data.bdiff_events_total)}</dd></div>
-                  <div><dt>FWI courant</dt><dd>Non exposé</dd></div>
-                </dl>
-              </div>
-            </section>
+            ${operationalMapPanel()}
 
             <section class="sci-panel sci-primary-span-5">
               ${panelHeader("Facteurs d'interprétation", "Limites scientifiques actuellement documentées.", "4 ouverts")}
@@ -832,7 +927,31 @@
     },
   };
 
+  function destroyOperationalMap() {
+    activeOperationalMap?.destroy();
+    activeOperationalMap = null;
+  }
+
+  function mountOperationalMap() {
+    const mapRoot = content.querySelector(".sci-operational-map");
+    if (!mapRoot) return;
+    if (!window.ErytheonOperationalMap || !window.L) {
+      const loading = mapRoot.querySelector("#map-loading");
+      if (loading) loading.innerHTML = "<span>Bibliothèque cartographique indisponible.</span>";
+      const connection = mapRoot.querySelector("#connection-label");
+      if (connection) connection.textContent = "Carte indisponible";
+      return;
+    }
+    activeOperationalMap = window.ErytheonOperationalMap.mount({ root: mapRoot });
+    requestAnimationFrame(() => {
+      activeOperationalMap?.resize();
+      window.setTimeout(() => activeOperationalMap?.resize(), 180);
+    });
+  }
+
   async function render(path) {
+    const sequence = ++renderSequence;
+    destroyOperationalMap();
     navLinks.forEach((link) => {
       const active = path.startsWith(link.getAttribute("data-route"));
       link.classList.toggle("is-active", active);
@@ -847,9 +966,12 @@
       if (datasetMatch) html = await PAGES["datasets/detail"](decodeURIComponent(datasetMatch[1]));
       else if (PAGES[path]) html = await PAGES[path]();
       else html = emptyState("Page inconnue", "Cette route n'existe pas dans la console scientifique.");
+      if (sequence !== renderSequence) return;
       content.innerHTML = html;
+      if (path === "overview") mountOperationalMap();
       document.title = `ERYTHEON — ${content.querySelector("h1")?.textContent ?? "Console scientifique"}`;
     } catch (error) {
+      if (sequence !== renderSequence) return;
       content.innerHTML = `<div class="sci-error" role="alert"><span aria-hidden="true"></span><div><strong>Erreur de chargement</strong><p>${escapeHtml(error.message)}</p></div></div>`;
     }
   }
@@ -877,6 +999,7 @@
   });
 
   window.addEventListener("popstate", () => render(currentRoute()));
+  window.addEventListener("pagehide", destroyOperationalMap);
 
   const tooltip = document.querySelector("#sci-tooltip-portal");
   function showTooltip(term) {
