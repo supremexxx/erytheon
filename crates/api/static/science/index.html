@@ -4,34 +4,89 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#eef1ef">
     <title>ERYTHEON — Console scientifique</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232c4039'/%3E%3Cpath d='M10 9h12v3H13v3h8v3h-8v3h9v3H10z' fill='%23f4f6f4'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="/science.css">
   </head>
   <body>
+    <a class="sci-skip-link" href="#sci-content">Aller au contenu scientifique</a>
+    <div class="sci-ambient" aria-hidden="true">
+      <span></span>
+      <span></span>
+    </div>
+
     <div class="sci-shell">
       <header class="sci-topbar">
         <a class="sci-brand" href="/science/overview">
-          <span class="sci-brand-mark" aria-hidden="true">E</span>
-          <strong>ERYTHEON</strong>
-          <span class="sci-brand-sub">Console scientifique</span>
+          <span class="sci-brand-mark" aria-hidden="true">
+            <span>E</span>
+          </span>
+          <span class="sci-brand-copy">
+            <strong>ERYTHEON</strong>
+            <span class="sci-brand-sub">Scientific mission console</span>
+          </span>
         </a>
-        <div class="sci-readonly-badge" role="status">Lecture seule — aucune action possible</div>
+
+        <div class="sci-topbar-context" aria-label="Contexte de la console">
+          <span class="sci-topbar-signal"><i aria-hidden="true"></i>Console privée</span>
+          <span class="sci-topbar-divider" aria-hidden="true"></span>
+          <span id="sci-top-clock">UTC</span>
+        </div>
+
+        <div class="sci-readonly-badge" role="status">
+          <span aria-hidden="true"></span>
+          Lecture seule
+        </div>
       </header>
 
       <div class="sci-body">
-        <nav class="sci-nav" aria-label="Navigation console scientifique">
-          <a data-route="overview" href="/science/overview">Vue d'ensemble</a>
-          <a data-route="progress" href="/science/progress">Progression</a>
-          <a data-route="sources" href="/science/sources">Sources et pipelines</a>
-          <a data-route="data-quality" href="/science/data-quality">Qualité des données</a>
-          <a data-route="features" href="/science/features">Features et snapshots</a>
-          <a data-route="datasets" href="/science/datasets">Datasets</a>
-          <a data-route="models" href="/science/models">Modèles</a>
-          <a data-route="system" href="/science/system">Système et intégrité</a>
-        </nav>
+        <aside class="sci-sidebar">
+          <div class="sci-nav-label">Espaces d'analyse</div>
+          <nav class="sci-nav" aria-label="Navigation console scientifique">
+            <a data-route="overview" href="/science/overview">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>
+              <span>Vue d'ensemble</span>
+            </a>
+            <a data-route="progress" href="/science/progress">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9m7 10V5m7 14v-7M3 19h18"/></svg>
+              <span>Progression</span>
+            </a>
+            <a data-route="sources" href="/science/sources">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v5m0 8v5M4 12h5m6 0h5M7.1 7.1l3.5 3.5m2.8 2.8 3.5 3.5m0-9.8-3.5 3.5m-2.8 2.8-3.5 3.5"/></svg>
+              <span>Sources</span>
+            </a>
+            <a data-route="data-quality" href="/science/data-quality">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18V9m5 9V5m5 13v-6m5 6V3M3 21h18"/></svg>
+              <span>Qualité des données</span>
+            </a>
+            <a data-route="features" href="/science/features">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Zm-8 9 8 4.5 8-4.5M4 16.5 12 21l8-4.5"/></svg>
+              <span>Features</span>
+            </a>
+            <a data-route="datasets" href="/science/datasets">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+              <span>Datasets</span>
+            </a>
+            <a data-route="models" href="/science/models">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 16l3-4 2 2 3-5"/></svg>
+              <span>Modèles</span>
+            </a>
+            <a data-route="system" href="/science/system">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/><path d="M4.9 4.9 8 6.2M16 17.8l3.1 1.3M19.1 4.9 16 6.2M8 17.8l-3.1 1.3M3 12h3m12 0h3M12 3v3m0 12v3"/></svg>
+              <span>Système</span>
+            </a>
+          </nav>
+
+          <div class="sci-sidebar-foot">
+            <span class="sci-sidebar-foot-label">Mode scientifique</span>
+            <strong><i aria-hidden="true"></i>Données réelles</strong>
+            <small>Aucune action d'écriture disponible</small>
+          </div>
+        </aside>
 
         <main class="sci-content" id="sci-content" aria-live="polite">
-          <div class="sci-loading">Chargement…</div>
+          <div class="sci-loading"><span aria-hidden="true"></span>Chargement des observations…</div>
         </main>
       </div>
     </div>

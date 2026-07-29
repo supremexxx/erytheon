@@ -2,6 +2,7 @@
   "use strict";
 
   const content = document.querySelector("#sci-content");
+  const topClock = document.querySelector("#sci-top-clock");
   const navLinks = [...document.querySelectorAll(".sci-nav a[data-route]")];
 
   const DEFINITIONS = Object.freeze({
@@ -73,7 +74,40 @@
     return response.json();
   }
 
-  /** Bandeau technique compact (statut environnement/base/modèle). */
+  function pageHeader(kicker, title, meta, aside = "Lecture directe") {
+    return `<header class="sci-page-header">
+      <div class="sci-page-header-copy">
+        <span class="sci-eyebrow">${escapeHtml(kicker)}</span>
+        <h1>${escapeHtml(title)}</h1>
+        ${meta ? `<p class="sci-page-meta">${escapeHtml(meta)}</p>` : ""}
+      </div>
+      <div class="sci-page-aside">${escapeHtml(aside)}</div>
+    </header>`;
+  }
+
+  function sectionHeader(kicker, title, note = "", index = "") {
+    return `<div class="sci-section-head">
+      <div class="sci-section-head-copy">
+        <span class="sci-section-kicker">${escapeHtml(kicker)}</span>
+        <h2>${escapeHtml(title)}</h2>
+        ${note ? `<p class="sci-section-note">${escapeHtml(note)}</p>` : ""}
+      </div>
+      ${index ? `<span class="sci-section-index">${escapeHtml(index)}</span>` : ""}
+    </div>`;
+  }
+
+  function riskList(rows) {
+    return `<ul class="sci-risk-list">${rows
+      .map(
+        (row) => `<li>
+          <strong class="${riskClass(row.level)}">${escapeHtml(row.level)}</strong>
+          <span>${escapeHtml(row.subject)}<small>${escapeHtml(row.impact)}</small></span>
+        </li>`,
+      )
+      .join("")}</ul>`;
+  }
+
+  /** Compact technical strip for environment, database and model state. */
   function statusLine(items) {
     return `<div class="sci-status-line">${items
       .map(
@@ -82,7 +116,7 @@
       .join("")}</div>`;
   }
 
-  /** Grille de cellules métriques compactes -- remplace les grandes cartes KPI. */
+  /** Compact metric matrix; values remain direct API observations. */
   function metricGrid(cells) {
     return `<div class="sci-metric-grid">${cells
       .map(
@@ -104,7 +138,7 @@
       )
       .join("");
     const meta = opts.hideMeta ? "" : `<p class="sci-bar-chart-meta">n = ${fmtNum(total)}${opts.unit ? ` ${opts.unit}` : ""}</p>`;
-    return bars + meta;
+    return `<div class="sci-bar-chart">${bars}</div>${meta}`;
   }
 
   function definitionGrid(pairs) {
@@ -138,10 +172,15 @@
         ? "validation isolée"
         : "production VPS";
       return `
-        <h1>Vue d'ensemble</h1>
-        <p class="sci-page-meta">Environnement : ${environment} · source : lecture directe PostgreSQL · actualisé ${now}.</p>
+        ${pageHeader(
+          "Mission control · synthèse",
+          "Vue d'ensemble",
+          `État consolidé du socle scientifique · ${environment} · actualisé ${now}.`,
+          "PostgreSQL · temps réel",
+        )}
 
-        <section class="sci-section">
+        <div class="sci-dashboard-grid">
+        <section class="sci-section sci-panel-compact sci-span-12">
           ${statusLine([
             { key: "Environnement", val: environment },
             { key: "Base", val: data.db_status === "ok" ? "PostgreSQL healthy" : data.db_status },
@@ -152,8 +191,27 @@
           ])}
         </section>
 
-        <section class="sci-section">
-          <h2>État scientifique</h2>
+        <section class="sci-section sci-span-8">
+          ${sectionHeader("Observations principales", "Indicateurs essentiels", "Volumes et invariants lus directement dans la base.", "01")}
+          ${metricGrid([
+            { label: "Événements BDIFF", value: fmtNum(data.bdiff_events_total), sub: "registre actif" },
+            { label: "Humains connus", value: fmtNum(data.bdiff_human_known), sub: "cause confirmée" },
+            { label: "Naturels connus", value: fmtNum(data.bdiff_natural_known), sub: "cause confirmée" },
+            { label: "Causes inconnues", value: fmtNum(data.bdiff_unknown), sub: "qualification ouverte" },
+            { label: "Cellules territoriales", value: fmtNum(data.cell_static_total), sub: "maillage statique" },
+            { label: "Datasets candidats", value: fmtNum(data.dataset_versions_total), sub: "versions registry" },
+            { label: "Snapshots de features", value: fmtNum(data.feature_snapshots_total), sub: "catalogue versionné" },
+            { label: "Migrations appliquées", value: fmtNum(data.migrations_applied), sub: "schéma courant" },
+          ])}
+        </section>
+
+        <aside class="sci-section sci-panel-warn sci-span-4">
+          ${sectionHeader("Contexte scientifique", "Risques ouverts", "Limites connues à conserver pendant l'interprétation.", "02")}
+          ${riskList(OPEN_RISKS)}
+        </aside>
+
+        <section class="sci-section sci-span-12">
+          ${sectionHeader("État du socle", "Composants scientifiques", "Disponibilité observée sans action possible depuis la console.", "03")}
           ${table(
             ["Composant", "État", "Détail"],
             [
@@ -172,49 +230,34 @@
             (r) => `<tr><td>${escapeHtml(r.name)}</td><td>${badge(r.state)}</td><td>${escapeHtml(r.detail)}</td></tr>`,
           )}
         </section>
-
-        <section class="sci-section">
-          <h2>Indicateurs essentiels</h2>
-          ${metricGrid([
-            { label: "Événements BDIFF", value: fmtNum(data.bdiff_events_total) },
-            { label: "Humains connus", value: fmtNum(data.bdiff_human_known) },
-            { label: "Naturels connus", value: fmtNum(data.bdiff_natural_known) },
-            { label: "Causes inconnues", value: fmtNum(data.bdiff_unknown) },
-            { label: "Cellules territoriales", value: fmtNum(data.cell_static_total) },
-            { label: "Datasets candidats", value: fmtNum(data.dataset_versions_total) },
-            { label: "Snapshots de features", value: fmtNum(data.feature_snapshots_total) },
-            { label: "Migrations appliquées", value: fmtNum(data.migrations_applied) },
-          ])}
-        </section>
-
-        <section class="sci-section sci-warning-box">
-          <h2>Risques ouverts</h2>
-          ${table(
-            ["Niveau", "Sujet", "Impact"],
-            OPEN_RISKS,
-            (r) => `<tr><td class="${riskClass(r.level)}">${escapeHtml(r.level)}</td><td>${escapeHtml(r.subject)}</td><td>${escapeHtml(r.impact)}</td></tr>`,
-          )}
-        </section>`;
+        </div>`;
     },
 
     async progress() {
       const phases = await fetchJSON("/api/science/progress");
       return `
-        <h1>Progression du projet</h1>
-        <p class="sci-page-meta">Journal de programme scientifique. Historique versionné dans le dépôt (aucune table dédiée n'existe encore).</p>
-        ${table(
-          ["Phase", "Intitulé", "Statut", "Commit", "Environnement", "Production affectée", "Résultat"],
-          phases,
-          (p) => `<tr>
-            <td class="sci-mono">${escapeHtml(p.label)}</td>
-            <td>${escapeHtml(p.title)}</td>
-            <td>${badge(p.status)}</td>
-            <td class="sci-mono">${p.commits && p.commits.length ? p.commits.map(escapeHtml).join(", ") : "—"}</td>
-            <td>${escapeHtml(p.environment)}</td>
-            <td>${p.production_affected ? "oui" : "non"}</td>
-            <td>${escapeHtml(p.summary)}</td>
-          </tr>${p.risks && p.risks.length ? `<tr><td></td><td colspan="6" class="sci-risk-medium">Risques ouverts : ${p.risks.map(escapeHtml).join("; ")}</td></tr>` : ""}`,
-        )}`;
+        ${pageHeader(
+          "Journal scientifique · programme",
+          "Progression du projet",
+          "Historique versionné des phases, validations et effets de production.",
+          `${fmtNum(phases.length)} phases documentées`,
+        )}
+        <section class="sci-section">
+          ${sectionHeader("Traçabilité", "Registre des phases", "Source versionnée dans le dépôt ; aucune table dédiée.", "01")}
+          ${table(
+            ["Phase", "Intitulé", "Statut", "Commit", "Environnement", "Production affectée", "Résultat"],
+            phases,
+            (p) => `<tr>
+              <td class="sci-mono">${escapeHtml(p.label)}</td>
+              <td>${escapeHtml(p.title)}</td>
+              <td>${badge(p.status)}</td>
+              <td class="sci-mono">${p.commits && p.commits.length ? p.commits.map(escapeHtml).join(", ") : "—"}</td>
+              <td>${escapeHtml(p.environment)}</td>
+              <td>${p.production_affected ? "oui" : "non"}</td>
+              <td>${escapeHtml(p.summary)}</td>
+            </tr>${p.risks && p.risks.length ? `<tr><td></td><td colspan="6" class="sci-risk-medium">Risques ouverts : ${p.risks.map(escapeHtml).join("; ")}</td></tr>` : ""}`,
+          )}
+        </section>`;
     },
 
     async sources() {
@@ -224,38 +267,46 @@
         fetchJSON("/api/science/pipelines?limit=50"),
       ]);
       return `
-        <h1>Sources et pipelines</h1>
-        <section class="sci-section">
+        ${pageHeader(
+          "Observabilité · ingestion",
+          "Sources et pipelines",
+          "Fraîcheur, exécutions et intégrité opérationnelle des flux scientifiques.",
+          "Lecture des 50 derniers runs",
+        )}
+        <div class="sci-dashboard-grid">
+        <section class="sci-section sci-span-12">
+          ${sectionHeader("Signal opérationnel", "Vue synthétique", "Inventaire présent dans les réponses courantes.", "01")}
           ${metricGrid([
-            { label: "Sources enregistrées", value: fmtNum(sources.length) },
-            { label: "Imports listés", value: fmtNum(imports.length) },
-            { label: "Pipelines listés", value: fmtNum(pipelines.length) },
+            { label: "Sources enregistrées", value: fmtNum(sources.length), sub: "source_status" },
+            { label: "Imports listés", value: fmtNum(imports.length), sub: "fenêtre courante" },
+            { label: "Pipelines listés", value: fmtNum(pipelines.length), sub: "fenêtre courante" },
           ])}
         </section>
-        <section class="sci-section">
-          <h2>Sources</h2>
+        <section class="sci-section sci-span-12">
+          ${sectionHeader("Fraîcheur et disponibilité", "Sources", "Dernière réussite et erreur récente exposées par source.", "02")}
           ${table(
             ["Source", "Catégorie", "Dernière réussite", "Observations", "Erreur récente"],
             sources,
             (s) => `<tr><td>${escapeHtml(s.id)}</td><td>${escapeHtml(s.category ?? "—")}</td><td>${fmtDate(s.last_success)}</td><td>${fmtNum(s.observation_count)}</td><td>${escapeHtml(s.recent_error ?? "—")}</td></tr>`,
           )}
         </section>
-        <section class="sci-section">
-          <h2>Imports récents</h2>
+        <section class="sci-section sci-span-7">
+          ${sectionHeader("Entrées", "Imports récents", "Volumes reçus, insérés et rejetés.", "03")}
           ${table(
             ["Batch", "Source", "Statut", "Début", "Reçues", "Insérées", "Rejetées"],
             imports,
             (b) => `<tr><td class="sci-mono">${escapeHtml(b.id.slice(0, 8))}</td><td>${escapeHtml(b.source_code ?? "—")}</td><td>${badge(b.status)}</td><td>${fmtDate(b.started_at)}</td><td>${fmtNum(b.records_received)}</td><td>${fmtNum(b.records_inserted)}</td><td>${fmtNum(b.records_rejected)}</td></tr>`,
           )}
         </section>
-        <section class="sci-section">
-          <h2>Pipelines récents</h2>
+        <section class="sci-section sci-span-5">
+          ${sectionHeader("Traitements", "Pipelines récents", "Statut d'exécution et erreurs déclarées.", "04")}
           ${table(
             ["Run", "Pipeline", "Statut", "Début", "Erreur"],
             pipelines,
             (r) => `<tr><td class="sci-mono">${escapeHtml(r.id.slice(0, 8))}</td><td>${escapeHtml(r.pipeline_name)}</td><td>${badge(r.status)}</td><td>${fmtDate(r.started_at)}</td><td>${escapeHtml(r.error_message ?? "—")}</td></tr>`,
           )}
-        </section>`;
+        </section>
+        </div>`;
     },
 
     async "data-quality"() {
@@ -265,41 +316,54 @@
       ]);
       const total = summary.bdiff_events_total || 1;
       return `
-        <h1>Qualité des données</h1>
+        ${pageHeader(
+          "Audit scientifique · BDIFF",
+          "Qualité des données",
+          "Lecture rigoureuse des causes, de la géographie, des doublons et de la combustibilité.",
+          `${fmtNum(summary.bdiff_events_total)} événements actifs`,
+        )}
         <section class="sci-section">
-          <h2>Synthèse</h2>
-          ${table(
-            ["Dimension", "Nombre", "Part"],
-            [
-              { name: "Causes humaines connues", n: summary.cause_counts.find((c) => c.category === "human_known")?.count ?? 0 },
-              { name: "Causes naturelles connues", n: summary.cause_counts.find((c) => c.category === "natural_known")?.count ?? 0 },
-              { name: "Causes inconnues", n: summary.cause_counts.find((c) => c.category === "unknown")?.count ?? 0 },
-              { name: "Groupes de coordonnées", n: summary.coordinate_groups_total },
-              { name: "Paires candidates doublons", n: summary.duplicate_candidate_pairs_total },
-            ],
-            (r) => `<tr><td>${escapeHtml(r.name)}</td><td>${fmtNum(r.n)}</td><td>${fmtPct(r.n / total)}</td></tr>`,
-          )}
+          ${sectionHeader("Population auditée", "Synthèse des contrôles", "Parts rapportées au volume BDIFF actif.", "01")}
+          ${metricGrid([
+            {
+              label: "Causes humaines connues",
+              value: fmtNum(summary.cause_counts.find((c) => c.category === "human_known")?.count ?? 0),
+              sub: fmtPct((summary.cause_counts.find((c) => c.category === "human_known")?.count ?? 0) / total),
+            },
+            {
+              label: "Causes naturelles connues",
+              value: fmtNum(summary.cause_counts.find((c) => c.category === "natural_known")?.count ?? 0),
+              sub: fmtPct((summary.cause_counts.find((c) => c.category === "natural_known")?.count ?? 0) / total),
+            },
+            {
+              label: "Causes inconnues",
+              value: fmtNum(summary.cause_counts.find((c) => c.category === "unknown")?.count ?? 0),
+              sub: fmtPct((summary.cause_counts.find((c) => c.category === "unknown")?.count ?? 0) / total),
+            },
+            { label: "Groupes de coordonnées", value: fmtNum(summary.coordinate_groups_total), sub: "contrôle géographique" },
+            { label: "Paires candidates doublons", value: fmtNum(summary.duplicate_candidate_pairs_total), sub: "contrôle de déduplication" },
+          ])}
         </section>
         <div class="sci-two-col">
           <section class="sci-section">
-            <h2>Répartition des causes</h2>
+            ${sectionHeader("Étiquettes", "Répartition des causes", "Catégories actives dans le registre.", "02")}
             ${barChart(summary.cause_counts.map((c) => ({ label: c.category, count: c.count })), { unit: "événements BDIFF" })}
           </section>
           <section class="sci-section">
-            <h2>Qualité géographique</h2>
+            ${sectionHeader("Géographie", "Qualité géographique", "Catégories d'audit spatial.", "03")}
             ${barChart(summary.geographic_quality_counts.map((c) => ({ label: c.category, count: c.count })), { unit: "événements" })}
           </section>
           <section class="sci-section">
-            <h2>Classification des doublons</h2>
+            ${sectionHeader("Déduplication", "Classification des doublons", "Groupes candidats classifiés.", "04")}
             ${barChart(summary.duplicate_classification_counts.map((c) => ({ label: c.category, count: c.count })), { unit: "paires candidates" })}
           </section>
           <section class="sci-section">
-            <h2>Combustibilité</h2>
+            ${sectionHeader("Cohérence spatiale", "Combustibilité", "Évaluation de la cellule d'origine.", "05")}
             ${barChart(summary.combustibility_counts.map((c) => ({ label: c.category, count: c.count })), { unit: "cellules" })}
           </section>
         </div>
         <section class="sci-section">
-          <h2>Exploration des événements</h2>
+          ${sectionHeader("Échantillon courant", "Exploration des événements", "Cinquante événements récents, sans modification possible.", "06")}
           ${table(
             ["Date", "H3", "Cause", "Sous-catégorie", "Qualité géographique"],
             events,
@@ -312,57 +376,76 @@
       const data = await fetchJSON("/api/science/features");
       const cal = data.calendar;
       return `
-        <h1>Features et snapshots</h1>
-        <section class="sci-section">
-          <h2>Catalogue de variables</h2>
+        ${pageHeader(
+          "Catalogue scientifique · variables",
+          "Features et snapshots",
+          "Provenance, disponibilité historique et intégrité des bundles de variables.",
+          `${fmtNum(data.snapshots.length)} snapshots enregistrés`,
+        )}
+        <div class="sci-dashboard-grid">
+        <section class="sci-section sci-span-8">
+          ${sectionHeader("Provenance", "Catalogue de variables", "Famille, millésime, couverture et checksum logique.", "01")}
           ${table(
             ["Famille", "Source", "Statut", "Classification temporelle", "Millésime", "Disponible depuis", "Cellules", "Checksum"],
             data.snapshots,
             (s) => `<tr><td>${escapeHtml(s.family)}</td><td>${escapeHtml(s.source)}</td><td>${badge(s.status)}</td><td>${s.temporal_classification === "current_snapshot_applied_historically" ? `<strong>${escapeHtml(s.temporal_classification)}</strong>` : escapeHtml(s.temporal_classification)}</td><td>${escapeHtml(s.vintage ?? "—")}</td><td>${fmtDate(s.available_from)}</td><td>${fmtNum(s.cell_count)}</td><td class="sci-mono">${escapeHtml(s.logical_checksum.slice(0, 12))}…</td></tr>`,
           )}
         </section>
-        <section class="sci-section">
-          <h2>Calendrier historique</h2>
+        <aside class="sci-section sci-panel-tint sci-span-4">
+          ${sectionHeader("Couverture temporelle", "Calendrier historique", "Disponibilité des variables calendaires.", "02")}
           ${definitionGrid([
             { key: "Jours couverts", val: `${fmtNum(cal.total_days)}${cal.min_date && cal.max_date ? ` (${cal.min_date} → ${cal.max_date})` : ""}` },
             { key: "Jours fériés", val: fmtNum(cal.public_holiday_days) },
             { key: "Vacances scolaires connues", val: fmtNum(cal.school_holiday_known_days) },
             { key: "Vacances scolaires indisponibles", html: cal.school_holiday_unknown_days > 0 ? `<span class="sci-risk-medium">${fmtNum(cal.school_holiday_unknown_days)} — donnée historiquement indisponible</span>` : "0" },
           ])}
-        </section>`;
+        </aside>
+        </div>`;
     },
 
     async datasets() {
       const datasets = await fetchJSON("/api/science/datasets");
       return `
-        <h1>Datasets</h1>
-        <p class="sci-page-meta">Registre d'expériences — chaque ligne est une version de dataset comparable.</p>
-        ${table(
-          ["Nom logique", "Variante", "Statut", "Seed", "Positifs", "Négatifs", "Total", "Exclusions", "Checksum"],
-          datasets,
-          (d) => `<tr>
-            <td><a href="/science/datasets/${encodeURIComponent(d.logical_id)}">${escapeHtml(d.name)}</a></td>
-            <td>${escapeHtml(d.variant)}</td>
-            <td>${badge(d.status)}</td>
-            <td class="sci-mono">${fmtNum(d.seed)}</td>
-            <td>${fmtNum(d.positive_count)}</td>
-            <td>${fmtNum(d.negative_count)}</td>
-            <td>${fmtNum(d.row_count)}</td>
-            <td>${fmtNum(d.exclusion_count)}</td>
-            <td class="sci-mono">${d.checksum ? escapeHtml(d.checksum.slice(0, 12)) + "…" : "—"}</td>
-          </tr>`,
-        )}`;
+        ${pageHeader(
+          "Registre expérimental · datasets",
+          "Datasets",
+          "Versions comparables, paramètres d'échantillonnage et empreintes d'intégrité.",
+          `${fmtNum(datasets.length)} versions enregistrées`,
+        )}
+        <section class="sci-section">
+          ${sectionHeader("Comparaison analytique", "Registre des versions", "Chaque ligne correspond à une version reproductible du dataset.", "01")}
+          ${table(
+            ["Nom logique", "Variante", "Statut", "Seed", "Positifs", "Négatifs", "Total", "Exclusions", "Checksum"],
+            datasets,
+            (d) => `<tr>
+              <td><a href="/science/datasets/${encodeURIComponent(d.logical_id)}">${escapeHtml(d.name)}</a></td>
+              <td>${escapeHtml(d.variant)}</td>
+              <td>${badge(d.status)}</td>
+              <td class="sci-mono">${fmtNum(d.seed)}</td>
+              <td>${fmtNum(d.positive_count)}</td>
+              <td>${fmtNum(d.negative_count)}</td>
+              <td>${fmtNum(d.row_count)}</td>
+              <td>${fmtNum(d.exclusion_count)}</td>
+              <td class="sci-mono">${d.checksum ? escapeHtml(d.checksum.slice(0, 12)) + "…" : "—"}</td>
+            </tr>`,
+          )}
+        </section>`;
     },
 
     async "datasets/detail"(logicalId) {
       const detail = await fetchJSON(`/api/science/datasets/${encodeURIComponent(logicalId)}`);
       const s = detail.summary;
       return `
-        <h1>${escapeHtml(s.name)}</h1>
-        <p class="sci-page-meta sci-mono">${escapeHtml(s.logical_id)}</p>
+        ${pageHeader(
+          "Dataset · fiche de validation",
+          s.name,
+          s.logical_id,
+          s.status,
+        )}
 
-        <section class="sci-section">
-          <h2>Identité</h2>
+        <div class="sci-dashboard-grid">
+        <section class="sci-section sci-span-4">
+          ${sectionHeader("Traçabilité", "Identité", "Paramètres de construction et empreinte.", "01")}
           ${definitionGrid([
             { key: "Statut", html: badge(s.status) },
             { key: "Variante", val: s.variant },
@@ -372,8 +455,8 @@
           ])}
         </section>
 
-        <section class="sci-section">
-          <h2>Population</h2>
+        <section class="sci-section sci-span-8">
+          ${sectionHeader("Échantillon", "Population", "Composition enregistrée pour cette version.", "02")}
           ${metricGrid([
             { label: "Total lignes", value: fmtNum(s.row_count) },
             { label: "Positifs", value: fmtNum(s.positive_count) },
@@ -382,15 +465,16 @@
           ])}
         </section>
 
-        <section class="sci-section">
-          <h2>Répartition par split</h2>
+        <section class="sci-section sci-span-6">
+          ${sectionHeader("Partitionnement", "Répartition par split", "Lignes par partition et label.", "03")}
           ${barChart(detail.splits.map((r) => ({ label: `${r.split} · label ${r.label}`, count: r.count })), { unit: "lignes" })}
         </section>
-        <section class="sci-section">
-          <h2>Exclusions</h2>
+        <section class="sci-section sci-span-6">
+          ${sectionHeader("Sélection", "Exclusions", "Lignes écartées par catégorie de raison.", "04")}
           ${barChart(detail.exclusions.map((r) => ({ label: r.reason_category, count: r.count })), { unit: "lignes exclues" })}
         </section>
-        <p><a href="/science/datasets">← Retour au registre des datasets</a></p>`;
+        <p class="sci-span-12"><a href="/science/datasets">← Retour au registre des datasets</a></p>
+        </div>`;
     },
 
     async models() {
@@ -407,8 +491,14 @@
       };
 
       return `
-        <h1>Modèles</h1>
-        <section class="sci-section">
+        ${pageHeader(
+          "Validation institutionnelle · modèles",
+          "Modèles",
+          "Comparaison documentée du modèle actif et du candidat strictement inactif.",
+          "Aucun scoring candidat",
+        )}
+        <div class="sci-dashboard-grid">
+        <section class="sci-section sci-panel-compact sci-span-12">
           ${statusLine([
             { key: "Modèle actif", val: v1 ? `id=${v1.id}` : "aucun" },
             { key: "Modèle candidat", val: c ? `${c.model_family}` : "aucun" },
@@ -417,9 +507,8 @@
           ])}
         </section>
 
-        <section class="sci-section">
-          <h2>Comparaison métrique (test 2025, population commune)</h2>
-          <p class="sci-page-meta">Source : ${escapeHtml(cmp.source)}</p>
+        <section class="sci-section sci-span-12">
+          ${sectionHeader("Population commune · test 2025", "Comparaison métrique", `Source : ${cmp.source}`, "01")}
           <div class="sci-table-scroll" role="region" aria-label="Comparaison des modèles" tabindex="0"><table class="sci-table">
             <thead><tr><th>Métrique</th><th>v1</th><th>Candidat</th><th>Écart</th><th>Interprétation</th></tr></thead>
             <tbody>
@@ -431,16 +520,15 @@
           <p class="sci-page-meta">Gain AP candidat − v1 : <strong class="sci-diff-pos">+${cmp.ap_diff_candidate_minus_v1}</strong> (IC 95 % [${cmp.ap_diff_95pct_ci[0]}, ${cmp.ap_diff_95pct_ci[1]}])</p>
         </section>
 
-        <div class="sci-two-col">
-          <section class="sci-section">
-            <h2>Modèle actif v1</h2>
+          <section class="sci-section sci-span-5">
+            ${sectionHeader("Production", "Modèle actif v1", "Artefact actuellement servi.", "02")}
             ${v1 ? definitionGrid([
               { key: "ID", val: v1.id },
               { key: "Entraîné le", val: fmtDate(v1.trained_at) },
-            ]) + `<pre class="sci-mono" style="white-space:pre-wrap;margin-top:10px;">${escapeHtml(JSON.stringify(v1.metrics, null, 2))}</pre>` : `<div class="sci-empty">Aucun modèle actif.</div>`}
+            ]) + `<pre class="sci-mono">${escapeHtml(JSON.stringify(v1.metrics, null, 2))}</pre>` : `<div class="sci-empty">Aucun modèle actif.</div>`}
           </section>
-          <section class="sci-section">
-            <h2>Artefact candidat</h2>
+          <section class="sci-section sci-panel-tint sci-span-7">
+            ${sectionHeader("Registry inactive", "Artefact candidat", "Identité vérifiable, sans branchement au serving.", "03")}
             ${c ? definitionGrid([
               { key: "Registry ID", val: c.id },
               { key: "Statut", html: badge(c.status) },
@@ -453,10 +541,9 @@
               { key: "Checksum artefact", html: `<span class="sci-mono">${escapeHtml(c.artifact_checksum)}</span>` },
             ]) : `<div class="sci-empty">Aucun candidat enregistré.</div>`}
           </section>
-        </div>
 
-        <section class="sci-section sci-method-panel">
-          <h2>Limites scientifiques</h2>
+        <section class="sci-section sci-method-panel sci-span-12">
+          ${sectionHeader("Cadre d'interprétation", "Limites scientifiques", "Restrictions à maintenir dans toute lecture des métriques.", "04")}
           <ul>
             <li>Le score candidat est une ${def("propension", "propension relative")}, pas une probabilité absolue d'incendie.</li>
             <li>Snapshot de features courant appliqué de façon uniforme à tout l'historique d'entraînement.</li>
@@ -466,7 +553,8 @@
             <li>Aucune comparaison au score FWI fusionné n'a été réalisée à ce stade.</li>
           </ul>
           <p>${escapeHtml(data.scientific_interpretation)}</p>
-        </section>`;
+        </section>
+        </div>`;
     },
 
     async system() {
@@ -478,9 +566,26 @@
         { name: "Shadow scoring absent", ok: true },
       ];
       return `
-        <h1>Système et intégrité</h1>
-        <section class="sci-section">
-          <h2>Composants</h2>
+        ${pageHeader(
+          "Fiche technique · intégrité",
+          "Système et intégrité",
+          "État du schéma, des registres scientifiques et des invariants de lecture seule.",
+          `${fmtNum(data.migrations_applied)} migrations appliquées`,
+        )}
+        <div class="sci-dashboard-grid">
+        <section class="sci-section sci-span-12">
+          ${sectionHeader("Invariants", "Résumé technique", "Comptages observés dans les registres de production.", "01")}
+          ${metricGrid([
+            { label: "Migrations appliquées", value: fmtNum(data.migrations_applied), sub: `${fmtNum(data.migrations_failed)} échec` },
+            { label: "Modèles actifs", value: fmtNum(data.active_model_count), sub: "v1 attendu" },
+            { label: "Candidats enregistrés", value: fmtNum(data.candidate_registry_count), sub: "registry inactive" },
+            { label: "Cellules statiques", value: fmtNum(data.cell_static_total), sub: "couverture territoriale" },
+            { label: "Événements d'ignition", value: fmtNum(data.ignition_events_total), sub: "registre actif" },
+            { label: "Versions dataset", value: fmtNum(data.dataset_versions_total), sub: "registry scientifique" },
+          ])}
+        </section>
+        <section class="sci-section sci-span-8">
+          ${sectionHeader("Services et registres", "Composants", "Santé logique et dernière réussite des sources.", "02")}
           ${table(
             ["Composant", "État", "Détail"],
             [
@@ -495,20 +600,27 @@
             (r) => `<tr><td>${escapeHtml(r.name)}</td><td>${badge(r.state)}</td><td>${escapeHtml(r.detail)}</td></tr>`,
           )}
         </section>
-        <section class="sci-section">
-          <h2>Intégrité</h2>
+        <aside class="sci-section sci-panel-tint sci-span-4">
+          ${sectionHeader("Garde-fous", "Intégrité", "Contrôles de sécurité scientifique.", "03")}
           ${table(
             ["Vérification", "Résultat"],
             checks,
             (c) => `<tr><td>${escapeHtml(c.name)}</td><td>${c.ok ? badge("ok") : `<span class="sci-risk-high">échec</span>`}</td></tr>`,
           )}
-        </section>`;
+        </aside>
+        </div>`;
     },
   };
 
   async function render(path) {
-    navLinks.forEach((a) => a.classList.toggle("is-active", path.startsWith(a.getAttribute("data-route"))));
-    content.innerHTML = `<div class="sci-loading">Chargement…</div>`;
+    navLinks.forEach((a) => {
+      const active = path.startsWith(a.getAttribute("data-route"));
+      a.classList.toggle("is-active", active);
+      if (active) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
+    });
+    document.body.dataset.scienceRoute = path.split("/")[0];
+    content.innerHTML = `<div class="sci-loading"><span aria-hidden="true"></span>Chargement des observations…</div>`;
     try {
       const datasetMatch = path.match(/^datasets\/(.+)$/);
       let html;
@@ -546,7 +658,9 @@
     tooltip.hidden = false;
     const rect = term.getBoundingClientRect();
     tooltip.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - tooltip.offsetWidth - 8))}px`;
-    tooltip.style.top = `${rect.bottom + 6}px`;
+    const below = rect.bottom + 7;
+    const above = rect.top - tooltip.offsetHeight - 7;
+    tooltip.style.top = `${below + tooltip.offsetHeight < window.innerHeight - 8 ? below : Math.max(8, above)}px`;
   }
 
   function hideTooltip() {
@@ -585,5 +699,12 @@
     true,
   );
 
+  function updateClock() {
+    const now = new Date();
+    topClock.textContent = `${now.toISOString().slice(11, 16)} UTC`;
+  }
+
+  updateClock();
+  window.setInterval(updateClock, 30_000);
   render(currentRoute());
 })();
