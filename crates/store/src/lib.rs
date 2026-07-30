@@ -13,6 +13,7 @@ mod bdiff;
 mod dataset;
 mod firms;
 mod model_candidate;
+mod observability;
 mod quality;
 mod science;
 
@@ -27,6 +28,10 @@ pub use firms::{FirmsImportIds, FirmsImportStart, FirmsPersistenceResult, FirmsT
 pub use model_candidate::{
     ModelCandidateRegistration, ModelCandidateRegistrationOutcome, ModelCandidateRow,
     ModelCandidateStatus,
+};
+pub use observability::{
+    ComparisonEntry, FreshnessThresholds, ScientificSnapshotRow, SnapshotAlertRow,
+    SystemSnapshotContext, SystemSnapshotRow,
 };
 pub use quality::{
     CombustibilityAssessmentRecord, CombustibleCandidateRecord, CoordinateGroupRecord,

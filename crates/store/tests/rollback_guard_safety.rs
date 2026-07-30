@@ -114,6 +114,7 @@ async fn table_is_empty(pool: &PgPool, table: &str) -> bool {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
     dotenvy::dotenv().ok();
     let Ok(admin_url) = std::env::var("DATABASE_URL") else {
@@ -125,19 +126,25 @@ async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
     let down_sql = migrations_root().join("0013_feature_snapshot_foundation.down.sql");
 
     // Migration 0015 adds a foreign key from ml.dataset_row_snapshots to
-    // features.feature_snapshots; 0013 cannot roll back while that FK
-    // exists, even with an empty feature_snapshots table -- rollbacks
-    // must run in reverse migration order. 0015's own tables are empty
-    // here, so its rollback is authorized and safe.
-    let output_0015 = run_psql(
-        &temp_url,
-        &migrations_root().join("0015_dataset_versioning_foundation.down.sql"),
-    );
-    assert!(
-        output_0015.status.success(),
-        "rolling back the dependent migration 0015 first must succeed while its tables are empty: {}",
-        String::from_utf8_lossy(&output_0015.stderr)
-    );
+    // features.feature_snapshots, and migration 0019 (phase 4A.5) adds
+    // another from observability.scientific_snapshots.static_snapshot_id;
+    // 0013 cannot roll back while either FK exists, even with an empty
+    // feature_snapshots table -- rollbacks must run in reverse migration
+    // order. Every dependent's own tables are empty here, so each
+    // rollback below is authorized and safe.
+    for down in [
+        "0021_snapshot_label_links.down.sql",
+        "0020_snapshot_alerts.down.sql",
+        "0019_scientific_snapshot_registry.down.sql",
+        "0015_dataset_versioning_foundation.down.sql",
+    ] {
+        let output = run_psql(&temp_url, &migrations_root().join(down));
+        assert!(
+            output.status.success(),
+            "rolling back dependent migration {down} first must succeed while its tables are empty: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     // --- Empty-state rollback must succeed ---
     let pool = PgPool::connect(&temp_url).await.expect("pool");
@@ -161,14 +168,15 @@ async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
     pool.close().await;
 
     // --- Restore via SQLx, keeping _sqlx_migrations consistent ---
-    // Both 13 and 15 had their tables dropped above (15 first, to clear
-    // the FK; then 13); both tracking rows must be cleared so SQLx
-    // re-applies both forward migrations, in order, on the next connect.
-    mark_migration_pending_again(&temp_url, 13).await;
-    mark_migration_pending_again(&temp_url, 15).await;
+    // 13, 15, 19, 20, and 21 all had their tables dropped above; every
+    // tracking row must be cleared so SQLx re-applies all five forward
+    // migrations, in order, on the next connect.
+    for version in [13, 15, 19, 20, 21] {
+        mark_migration_pending_again(&temp_url, version).await;
+    }
     Store::connect(&temp_url)
         .await
-        .expect("reapply migrations 13 and 15");
+        .expect("reapply migrations 13, 15, 19, 20, and 21");
 
     // --- Insert a minimal fixture, then the guard must refuse ---
     let store = Store::connect(&temp_url).await.expect("store");
@@ -202,6 +210,22 @@ async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
         .await
         .expect("register fixture snapshot");
     assert!(!table_is_empty(&pool, "features.feature_snapshots").await);
+
+    // Reapplying migrations above brought 0019-0021 back too; clear them
+    // out of the way again so the assertion below exercises 0013's own
+    // "data exists" guard, not the out-of-order guard.
+    for down in [
+        "0021_snapshot_label_links.down.sql",
+        "0020_snapshot_alerts.down.sql",
+        "0019_scientific_snapshot_registry.down.sql",
+    ] {
+        let output = run_psql(&temp_url, &migrations_root().join(down));
+        assert!(
+            output.status.success(),
+            "rolling back dependent migration {down} again must succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     let output = run_psql(&temp_url, &down_sql);
     assert!(
@@ -669,6 +693,154 @@ async fn rollback_0016_refuses_and_preserves_a_registered_candidate() {
         family_index_exists,
         "failed rollback must preserve the registry index"
     );
+
+    pool.close().await;
+    drop_temp_database(&admin_url, db_name).await;
+}
+
+/// Phase 4A.5: `0021`-`0018` must roll back only in strict reverse order
+/// on an empty database, and each rollback must refuse while a later
+/// migration's objects still exist.
+#[tokio::test]
+async fn rollback_0021_to_0018_succeeds_only_in_reverse_order_when_empty() {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping database integration test: DATABASE_URL is not configured");
+        return;
+    };
+    let db_name = "erytheon_rollback_test_0018_0021_empty";
+    let temp_url = create_and_migrate_temp_database(&admin_url, db_name).await;
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+
+    let out_of_order = run_psql(
+        &temp_url,
+        &migrations_root().join("0018_observability_foundation.down.sql"),
+    );
+    assert!(
+        !out_of_order.status.success(),
+        "0018 must refuse while migration 0019+ objects still exist"
+    );
+    assert!(
+        table_exists(&pool, "observability", "scientific_snapshots").await,
+        "out-of-order rollback must preserve 0019's manifest table"
+    );
+
+    let rollback_0021 = run_psql(
+        &temp_url,
+        &migrations_root().join("0021_snapshot_label_links.down.sql"),
+    );
+    assert!(
+        rollback_0021.status.success(),
+        "0021 rollback must succeed on an empty table: {}",
+        String::from_utf8_lossy(&rollback_0021.stderr)
+    );
+    assert!(!table_exists(&pool, "ml", "snapshot_label_links").await);
+
+    let rollback_0020 = run_psql(
+        &temp_url,
+        &migrations_root().join("0020_snapshot_alerts.down.sql"),
+    );
+    assert!(
+        rollback_0020.status.success(),
+        "0020 rollback must succeed on an empty table: {}",
+        String::from_utf8_lossy(&rollback_0020.stderr)
+    );
+    assert!(!table_exists(&pool, "observability", "snapshot_alerts").await);
+
+    let rollback_0019 = run_psql(
+        &temp_url,
+        &migrations_root().join("0019_scientific_snapshot_registry.down.sql"),
+    );
+    assert!(
+        rollback_0019.status.success(),
+        "0019 rollback must succeed on empty tables: {}",
+        String::from_utf8_lossy(&rollback_0019.stderr)
+    );
+    assert!(!table_exists(&pool, "observability", "scientific_snapshots").await);
+    assert!(!table_exists(&pool, "observability", "scientific_snapshot_values").await);
+
+    let rollback_0018 = run_psql(
+        &temp_url,
+        &migrations_root().join("0018_observability_foundation.down.sql"),
+    );
+    assert!(
+        rollback_0018.status.success(),
+        "0018 rollback must succeed on an empty table: {}",
+        String::from_utf8_lossy(&rollback_0018.stderr)
+    );
+    assert!(!table_exists(&pool, "observability", "system_snapshots").await);
+    let observability_schema_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM information_schema.schemata WHERE schema_name = 'observability'
+         )",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("check observability schema");
+    assert!(
+        !observability_schema_exists,
+        "0018 rollback must remove the observability schema it created"
+    );
+
+    pool.close().await;
+    drop_temp_database(&admin_url, db_name).await;
+}
+
+/// Phase 4A.5: `0018` must refuse destructively once an operational
+/// snapshot exists, regardless of migration ordering.
+#[tokio::test]
+async fn rollback_0018_refuses_and_preserves_populated_system_snapshots() {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping database integration test: DATABASE_URL is not configured");
+        return;
+    };
+    let db_name = "erytheon_rollback_test_0018_populated";
+    let temp_url = create_and_migrate_temp_database(&admin_url, db_name).await;
+    let pool = PgPool::connect(&temp_url).await.expect("pool");
+
+    for down in [
+        "0021_snapshot_label_links.down.sql",
+        "0020_snapshot_alerts.down.sql",
+        "0019_scientific_snapshot_registry.down.sql",
+    ] {
+        let out = run_psql(&temp_url, &migrations_root().join(down));
+        assert!(
+            out.status.success(),
+            "prerequisite rollback {down} must succeed"
+        );
+    }
+
+    sqlx::query(
+        "INSERT INTO observability.system_snapshots
+            (captured_at, capture_date, environment, cadence, checksum)
+         VALUES (NOW(), CURRENT_DATE, 'rollback_fixture', 'daily', 'fixture')",
+    )
+    .execute(&pool)
+    .await
+    .expect("insert system snapshot fixture");
+
+    let output = run_psql(
+        &temp_url,
+        &migrations_root().join("0018_observability_foundation.down.sql"),
+    );
+    assert!(
+        !output.status.success(),
+        "0018 rollback must refuse when operational snapshot history exists"
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("refusing destructive rollback"),
+        "0018 guard must return a useful error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM observability.system_snapshots")
+            .fetch_one(&pool)
+            .await
+            .expect("count preserved snapshot"),
+        1
+    );
+    assert!(table_exists(&pool, "observability", "system_snapshots").await);
 
     pool.close().await;
     drop_temp_database(&admin_url, db_name).await;

@@ -433,6 +433,10 @@ async fn exercising_every_endpoint_writes_nothing_to_the_candidate_registry() {
         "/api/science/datasets",
         "/api/science/models",
         "/api/science/system",
+        "/api/science/observability/history",
+        "/api/science/observability/compare",
+        "/api/science/snapshots",
+        "/api/science/snapshot-alerts",
     ] {
         let (status, _) = get_json(&app, uri).await;
         assert!(
@@ -455,5 +459,103 @@ async fn exercising_every_endpoint_writes_nothing_to_the_candidate_registry() {
     assert_eq!(
         count_before, count_after,
         "no science console endpoint may write to ml.model_candidate_registry"
+    );
+}
+
+#[tokio::test]
+async fn observability_compare_validates_days_and_avoids_fabricating_a_baseline() {
+    let Some(store) = connect().await else {
+        return;
+    };
+    let app = build_app(store);
+
+    let (status, body) = get_json(&app, "/api/science/observability/compare?days=1,7").await;
+    assert_eq!(status, StatusCode::OK);
+    let reports = body.as_array().expect("array of comparison reports");
+    assert_eq!(reports.len(), 2);
+    for report in reports {
+        assert!(report["days_ago"].is_i64());
+        assert!(report["available"].is_boolean());
+        // When no snapshot exists at J-N, `available` must be false and
+        // `entries` empty -- never a fabricated zero-filled comparison.
+        if report["available"] == Value::Bool(false) {
+            assert_eq!(report["entries"], Value::Array(vec![]));
+        }
+    }
+
+    let (bad_status, bad_body) =
+        get_json(&app, "/api/science/observability/compare?days=abc").await;
+    assert_eq!(bad_status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        bad_body["error"]["code"],
+        Value::String("invalid_days".into())
+    );
+
+    let (oob_status, _) = get_json(&app, "/api/science/observability/compare?days=9999").await;
+    assert_eq!(oob_status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn observability_latest_is_404_before_any_capture_in_an_isolated_database() {
+    dotenvy::dotenv().ok();
+    let Ok(admin_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping science console integration test: DATABASE_URL is not configured");
+        return;
+    };
+    let db_name = "erytheon_science_test_observability_absence";
+    let temp_url = create_temp_database(&admin_url, db_name).await;
+    let store = Store::connect(&temp_url).await.expect("connect");
+    let app = build_app(store);
+
+    let (status, body) = get_json(&app, "/api/science/observability/latest").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        body["error"]["code"],
+        Value::String("no_operational_snapshot".into())
+    );
+
+    drop_temp_database(&admin_url, db_name).await;
+}
+
+#[tokio::test]
+async fn snapshot_alerts_rejects_invalid_severity_and_paginates() {
+    let Some(store) = connect().await else {
+        return;
+    };
+    let app = build_app(store);
+
+    let (bad_status, bad_body) =
+        get_json(&app, "/api/science/snapshot-alerts?severity=disastrous").await;
+    assert_eq!(bad_status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        bad_body["error"]["code"],
+        Value::String("invalid_severity".into())
+    );
+
+    let (status, body) = get_json(
+        &app,
+        "/api/science/snapshot-alerts?severity=critical&limit=1",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let alerts = body.as_array().expect("array of alerts");
+    assert!(alerts.len() <= 1, "limit=1 must be respected");
+}
+
+#[tokio::test]
+async fn snapshot_detail_is_404_for_an_unknown_id() {
+    let Some(store) = connect().await else {
+        return;
+    };
+    let app = build_app(store);
+    let (status, body) = get_json(
+        &app,
+        "/api/science/snapshots/00000000-0000-0000-0000-000000000000",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        body["error"]["code"],
+        Value::String("snapshot_not_found".into())
     );
 }

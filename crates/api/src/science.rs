@@ -34,6 +34,181 @@ pub fn router() -> Router<AppState> {
         .route("/datasets/{logical_id}", get(dataset_detail))
         .route("/models", get(models))
         .route("/system", get(system))
+        .route("/observability/latest", get(observability_latest))
+        .route("/observability/history", get(observability_history))
+        .route("/observability/compare", get(observability_compare))
+        .route("/snapshots", get(snapshots))
+        .route("/snapshots/{id}", get(snapshot_detail))
+        .route("/snapshot-alerts", get(snapshot_alerts))
+}
+
+const DEFAULT_ENVIRONMENT: &str = "default";
+const MAX_HISTORY_DAYS: i64 = 366;
+const DEFAULT_HISTORY_DAYS: i64 = 30;
+
+#[derive(Debug, Deserialize)]
+struct ObservabilityQuery {
+    environment: Option<String>,
+    cadence: Option<String>,
+}
+
+async fn observability_latest(
+    State(state): State<AppState>,
+    Query(query): Query<ObservabilityQuery>,
+) -> Result<Json<store::SystemSnapshotRow>, ApiError> {
+    let environment = query.environment.as_deref().unwrap_or(DEFAULT_ENVIRONMENT);
+    let cadence = query.cadence.as_deref().unwrap_or("daily");
+    state
+        .store()
+        .latest_system_snapshot(environment, cadence)
+        .await
+        .map_err(database_error)?
+        .map(Json)
+        .ok_or_else(|| {
+            ApiError::not_found(
+                "no_operational_snapshot",
+                "no operational snapshot has been captured yet",
+            )
+        })
+}
+
+#[derive(Debug, Deserialize)]
+struct ObservabilityHistoryQuery {
+    environment: Option<String>,
+    cadence: Option<String>,
+    days: Option<i64>,
+}
+
+async fn observability_history(
+    State(state): State<AppState>,
+    Query(query): Query<ObservabilityHistoryQuery>,
+) -> Result<Json<Vec<store::SystemSnapshotRow>>, ApiError> {
+    let environment = query.environment.as_deref().unwrap_or(DEFAULT_ENVIRONMENT);
+    let cadence = query.cadence.as_deref().unwrap_or("daily");
+    let days = query
+        .days
+        .unwrap_or(DEFAULT_HISTORY_DAYS)
+        .clamp(1, MAX_HISTORY_DAYS);
+    Ok(Json(
+        state
+            .store()
+            .system_snapshot_history(environment, cadence, days)
+            .await
+            .map_err(database_error)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct ObservabilityCompareQuery {
+    environment: Option<String>,
+    /// Comma-separated list of J-N offsets, e.g. `1,7`.
+    days: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ComparisonReport {
+    days_ago: i64,
+    available: bool,
+    entries: Vec<store::ComparisonEntry>,
+}
+
+async fn observability_compare(
+    State(state): State<AppState>,
+    Query(query): Query<ObservabilityCompareQuery>,
+) -> Result<Json<Vec<ComparisonReport>>, ApiError> {
+    let environment = query.environment.as_deref().unwrap_or(DEFAULT_ENVIRONMENT);
+    let raw_days = query.days.as_deref().unwrap_or("1,7");
+    let mut offsets = Vec::new();
+    for part in raw_days.split(',') {
+        let offset: i64 = part.trim().parse().map_err(|_| {
+            ApiError::bad_request(
+                "invalid_days",
+                "days must be a comma-separated list of positive integers, e.g. 1,7",
+            )
+        })?;
+        if !(1..=MAX_HISTORY_DAYS).contains(&offset) {
+            return Err(ApiError::bad_request(
+                "invalid_days",
+                "each day offset must be between 1 and 366",
+            ));
+        }
+        offsets.push(offset);
+    }
+    let mut reports = Vec::with_capacity(offsets.len());
+    for days_ago in offsets {
+        let comparison = state
+            .store()
+            .compare_system_snapshots(environment, days_ago)
+            .await
+            .map_err(database_error)?;
+        reports.push(ComparisonReport {
+            days_ago,
+            available: comparison.is_some(),
+            entries: comparison.unwrap_or_default(),
+        });
+    }
+    Ok(Json(reports))
+}
+
+async fn snapshots(
+    State(state): State<AppState>,
+    Query(query): Query<PageQuery>,
+) -> Result<Json<Vec<store::ScientificSnapshotRow>>, ApiError> {
+    let (limit, offset) = page_params(&query);
+    Ok(Json(
+        state
+            .store()
+            .list_scientific_snapshots(limit, offset)
+            .await
+            .map_err(database_error)?,
+    ))
+}
+
+async fn snapshot_detail(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<store::ScientificSnapshotRow>, ApiError> {
+    state
+        .store()
+        .get_scientific_snapshot(&id)
+        .await
+        .map_err(database_error)?
+        .map(Json)
+        .ok_or_else(|| {
+            ApiError::not_found("snapshot_not_found", "no scientific snapshot with this id")
+        })
+}
+
+#[derive(Debug, Deserialize)]
+struct AlertsQuery {
+    severity: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn snapshot_alerts(
+    State(state): State<AppState>,
+    Query(query): Query<AlertsQuery>,
+) -> Result<Json<Vec<store::SnapshotAlertRow>>, ApiError> {
+    let (limit, offset) = page_params(&PageQuery {
+        limit: query.limit,
+        offset: query.offset,
+    });
+    if let Some(severity) = query.severity.as_deref()
+        && !matches!(severity, "info" | "warning" | "critical")
+    {
+        return Err(ApiError::bad_request(
+            "invalid_severity",
+            "severity must be info, warning, or critical",
+        ));
+    }
+    Ok(Json(
+        state
+            .store()
+            .list_snapshot_alerts(query.severity.as_deref(), limit, offset)
+            .await
+            .map_err(database_error)?,
+    ))
 }
 
 fn database_error(error: store::StoreError) -> ApiError {
