@@ -13,6 +13,7 @@ mod model_experiments;
 mod quality_pipeline;
 mod risk_pipeline;
 mod scheduler;
+mod snapshot_pipeline;
 mod static_layers;
 mod territory;
 mod v1_candidate_comparison;
@@ -27,7 +28,7 @@ use std::{
 
 use anyhow::Context;
 use api::AppState;
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use clap::{Parser, Subcommand, ValueEnum};
 use config::{Config, DataProfile, is_fixture_path};
 use grid::H3Grid;
@@ -283,6 +284,42 @@ enum Command {
         #[arg(long, default_value_t = DEFAULT_NEGATIVES_PER_POSITIVE)]
         negatives_per_positive: usize,
     },
+    /// Phase 4A.5: captures one operational observability snapshot
+    /// (aggregates and statuses only). Idempotent per (environment,
+    /// `capture_date`, cadence). Never trains, scores, or activates
+    /// anything.
+    SnapshotOperational {
+        /// RFC 3339 instant to capture as; defaults to now.
+        #[arg(long)]
+        at: Option<DateTime<Utc>>,
+        #[arg(long, default_value = "daily")]
+        cadence: String,
+    },
+    /// Phase 4A.5: captures (or resumes/no-ops on) the weekly
+    /// `nowcast`-only scientific snapshot pilot for one calendar day.
+    SnapshotScientific {
+        /// Calendar date the snapshot is valid for (UTC midnight).
+        #[arg(long)]
+        date: NaiveDate,
+    },
+    /// Phase 4A.5: verifies a published scientific snapshot is complete
+    /// and immutable.
+    SnapshotVerify {
+        #[arg(long)]
+        id: String,
+    },
+    /// Phase 4A.5: compares the latest daily snapshot to J-N for one or
+    /// more values of N (e.g. `--days 1,7`).
+    SnapshotCompare {
+        #[arg(long, value_delimiter = ',', default_value = "1,7")]
+        days: Vec<i64>,
+    },
+    /// Phase 4A.5: reports what a future retention pass would remove,
+    /// without deleting anything. No deletion path exists yet.
+    SnapshotRetention {
+        #[arg(long, default_value_t = true)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -504,6 +541,45 @@ async fn main() -> anyhow::Result<()> {
                 },
             )
             .await
+        }
+        Command::SnapshotOperational { at, cadence } => {
+            snapshot_pipeline::run_operational_snapshot(
+                config,
+                snapshot_pipeline::OperationalSnapshotOptions { at, cadence },
+            )
+            .await
+        }
+        Command::SnapshotScientific { date } => {
+            let valid_at = date
+                .and_hms_opt(0, 0, 0)
+                .context("invalid calendar date")?
+                .and_utc();
+            snapshot_pipeline::run_scientific_snapshot(
+                config,
+                snapshot_pipeline::ScientificSnapshotOptions { valid_at },
+            )
+            .await
+        }
+        Command::SnapshotVerify { id } => {
+            snapshot_pipeline::run_verify_snapshot(
+                config,
+                snapshot_pipeline::VerifySnapshotOptions { id },
+            )
+            .await
+        }
+        Command::SnapshotCompare { days } => {
+            snapshot_pipeline::run_compare_snapshots(
+                config,
+                snapshot_pipeline::CompareSnapshotOptions { days },
+            )
+            .await
+        }
+        Command::SnapshotRetention { dry_run } => {
+            anyhow::ensure!(
+                dry_run,
+                "only --dry-run is supported in this phase; no deletion path exists"
+            );
+            snapshot_pipeline::run_retention_dry_run(config).await
         }
     }
 }

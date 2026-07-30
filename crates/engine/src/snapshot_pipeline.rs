@@ -1,0 +1,205 @@
+//! Phase 4A.5: CLI entry points for automated observability snapshots.
+//! Every command here only captures, verifies, compares, or dry-run
+//! reports on snapshots; none of them trains, scores a candidate, or
+//! activates a model.
+
+use anyhow::Context;
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use serde_json::json;
+use store::{FreshnessThresholds, Store, SystemSnapshotContext};
+
+use crate::config::Config;
+
+const CODE_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Matches `scheduler::SNAPSHOT_ENVIRONMENT`: this pilot runs a single
+/// environment bucket. A multi-environment deployment would need this
+/// sourced from configuration instead of duplicated as a constant.
+const ENVIRONMENT: &str = "default";
+
+#[derive(Clone, Debug)]
+pub struct OperationalSnapshotOptions {
+    pub at: Option<DateTime<Utc>>,
+    pub cadence: String,
+}
+
+pub async fn run_operational_snapshot(
+    config: Config,
+    options: OperationalSnapshotOptions,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        matches!(options.cadence.as_str(), "daily" | "hourly" | "event"),
+        "unsupported --cadence {:?}: must be daily, hourly, or event",
+        options.cadence
+    );
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize observability database")?;
+    let captured_at = options.at.unwrap_or_else(Utc::now);
+    let ctx = SystemSnapshotContext {
+        application_revision: std::env::var("ERYTHEON_APPLICATION_REVISION").ok(),
+        application_image: std::env::var("ERYTHEON_APPLICATION_IMAGE").ok(),
+        application_restart_count: None,
+        caddy_state: std::env::var("ERYTHEON_CADDY_STATE").ok(),
+    };
+    let snapshot = store
+        .capture_system_snapshot(ENVIRONMENT, &options.cadence, captured_at, &ctx)
+        .await
+        .context("failed to capture operational snapshot")?;
+
+    let alerts = store
+        .evaluate_and_record_alerts(&snapshot, FreshnessThresholds::default())
+        .await
+        .context("failed to evaluate freshness/degradation rules")?;
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "id": snapshot.id,
+            "environment": snapshot.environment,
+            "cadence": snapshot.cadence,
+            "capture_date": snapshot.capture_date,
+            "checksum": snapshot.checksum,
+            "forecast_age_seconds": snapshot.forecast_age_seconds,
+            "firms_age_seconds": snapshot.firms_age_seconds,
+            "active_model_count": snapshot.active_model_count,
+            "candidate_status": snapshot.candidate_status,
+            "new_alerts": alerts.len(),
+            "code_version": CODE_VERSION,
+        }))?
+    );
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub struct ScientificSnapshotOptions {
+    pub valid_at: DateTime<Utc>,
+}
+
+pub async fn run_scientific_snapshot(
+    config: Config,
+    options: ScientificSnapshotOptions,
+) -> anyhow::Result<()> {
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize observability database")?;
+    let snapshot = store
+        .capture_weekly_scientific_snapshot(options.valid_at)
+        .await
+        .context("failed to capture scientific snapshot")?;
+    println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub struct VerifySnapshotOptions {
+    pub id: String,
+}
+
+pub async fn run_verify_snapshot(
+    config: Config,
+    options: VerifySnapshotOptions,
+) -> anyhow::Result<()> {
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize observability database")?;
+    let snapshot = store
+        .get_scientific_snapshot(&options.id)
+        .await
+        .context("failed to load scientific snapshot")?
+        .ok_or_else(|| anyhow::anyhow!("no scientific snapshot with id {}", options.id))?;
+    anyhow::ensure!(
+        snapshot.status == "published",
+        "snapshot {} is not published (status = {})",
+        options.id,
+        snapshot.status
+    );
+    anyhow::ensure!(
+        snapshot.complete,
+        "snapshot {} is published but incomplete: missing_count > 0",
+        options.id
+    );
+    println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub struct CompareSnapshotOptions {
+    pub days: Vec<i64>,
+}
+
+#[derive(Serialize)]
+struct CompareReport {
+    days_ago: i64,
+    available: bool,
+    entries: Vec<store::ComparisonEntry>,
+}
+
+pub async fn run_compare_snapshots(
+    config: Config,
+    options: CompareSnapshotOptions,
+) -> anyhow::Result<()> {
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize observability database")?;
+    let mut reports = Vec::new();
+    for days_ago in options.days {
+        let comparison = store
+            .compare_system_snapshots(ENVIRONMENT, days_ago)
+            .await
+            .with_context(|| format!("failed to compare J-{days_ago}"))?;
+        reports.push(CompareReport {
+            days_ago,
+            available: comparison.is_some(),
+            entries: comparison.unwrap_or_default(),
+        });
+    }
+    println!("{}", serde_json::to_string_pretty(&reports)?);
+    Ok(())
+}
+
+/// Reports what a future retention pass would remove, without deleting
+/// anything. No deletion path is implemented in this phase (see
+/// `PHASE4A5_RETENTION_POLICY.md`): this command exists so the dry-run
+/// output format is already stable and reviewable before any deletion
+/// logic is proposed.
+pub async fn run_retention_dry_run(config: Config) -> anyhow::Result<()> {
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize observability database")?;
+    let hourly_count = store
+        .system_snapshot_history(ENVIRONMENT, "hourly", 3650)
+        .await
+        .context("failed to read hourly snapshot history")?
+        .len();
+    let daily_count = store
+        .system_snapshot_history(ENVIRONMENT, "daily", 3650)
+        .await
+        .context("failed to read daily snapshot history")?
+        .len();
+    let scientific_count = store
+        .list_scientific_snapshots(1000, 0)
+        .await
+        .context("failed to read scientific snapshot manifests")?
+        .len();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "dry_run": true,
+            "would_delete": 0,
+            "policy": {
+                "operational_hourly_retention_days": 90,
+                "operational_daily_retention": "indefinite",
+                "scientific_manifests_retention": "indefinite",
+                "scientific_values_retention": "indefinite in this pilot; see PHASE4A5_RETENTION_POLICY.md",
+            },
+            "current_counts": {
+                "operational_hourly": hourly_count,
+                "operational_daily": daily_count,
+                "scientific_manifests": scientific_count,
+            },
+            "note": "no automatic deletion is implemented or enabled in phase 4A.5",
+        }))?
+    );
+    Ok(())
+}

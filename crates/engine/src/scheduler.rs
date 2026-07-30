@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{Datelike, Duration as ChronoDuration, Utc, Weekday};
 use grid::H3Grid;
 use ingest::{Cadence, FetchCtx, Source, firms::FirmsSource, open_meteo::OpenMeteoForecastSource};
 use risk::HeuristicV1;
-use store::Store;
+use store::{FreshnessThresholds, Store, SystemSnapshotContext};
 use tokio::{
     sync::broadcast,
     time::{MissedTickBehavior, interval},
@@ -14,6 +14,22 @@ use tokio::{
 use crate::{config::Config, firms_pipeline, forecast, territory::Territory};
 
 const FORECAST_POLL_INTERVAL: Duration = Duration::from_hours(1);
+const DAY: Duration = Duration::from_hours(24);
+const WEEK: Duration = Duration::from_hours(24 * 7);
+/// 02:15 UTC: chosen to fall well outside `poll_forecast`'s on-the-hour
+/// runs, the FIRMS poll window, and the documented VPS backup timers
+/// (`deploy/oracle/systemd/pyrorisk-*.timer`), per
+/// `PHASE4A5_SNAPSHOT_ARCHITECTURE_DECISION.md` §12 of the phase spec.
+const DAILY_SNAPSHOT_HOUR_UTC: u32 = 2;
+const DAILY_SNAPSHOT_MINUTE_UTC: u32 = 15;
+/// Monday, immediately after the daily snapshot slot: the weekly
+/// scientific pilot piggybacks on a day already known to be quiet.
+const WEEKLY_SNAPSHOT_WEEKDAY: Weekday = Weekday::Mon;
+const WEEKLY_SNAPSHOT_HOUR_UTC: u32 = 3;
+/// Matches `snapshot_pipeline::ENVIRONMENT`: this pilot runs a single
+/// environment bucket. A multi-environment deployment would need this
+/// sourced from configuration instead of duplicated as a constant.
+const SNAPSHOT_ENVIRONMENT: &str = "default";
 
 pub fn spawn(
     config: Config,
@@ -25,8 +41,16 @@ pub fn spawn(
 ) {
     tokio::spawn(poll_firms(config.clone(), store.clone(), grid));
     tokio::spawn(poll_forecast(
-        config, store, grid, model, territory, updates,
+        config,
+        store.clone(),
+        grid,
+        model,
+        territory,
+        updates,
     ));
+    tokio::spawn(snapshot_operational_hourly(store.clone()));
+    tokio::spawn(snapshot_operational_daily(store.clone()));
+    tokio::spawn(snapshot_scientific_weekly(store));
 }
 
 async fn poll_firms(config: Config, store: Store, grid: H3Grid) {
@@ -164,5 +188,127 @@ async fn record_success(store: &Store, source: &str, count: usize) {
 async fn record_error(store: &Store, source: &str, message: &str) {
     if let Err(error) = store.record_source_error(source, message).await {
         tracing::error!(source, %error, "failed to record source error");
+    }
+}
+
+/// Duration until the next occurrence of `hour:minute` UTC (today if
+/// still ahead, otherwise tomorrow). A snapshot outage never blocks the
+/// main service: any failure here is logged and the loop simply waits
+/// for its next tick.
+fn duration_until_next_utc_time(hour: u32, minute: u32) -> Duration {
+    let now = Utc::now();
+    let today_target = now
+        .date_naive()
+        .and_hms_opt(hour, minute, 0)
+        .expect("valid hour/minute constants");
+    let target = if now.naive_utc() < today_target {
+        today_target
+    } else {
+        today_target + ChronoDuration::days(1)
+    };
+    (target - now.naive_utc())
+        .to_std()
+        .unwrap_or(Duration::from_secs(0))
+}
+
+/// Duration until the next occurrence of `weekday` at `hour:00` UTC.
+fn duration_until_next_utc_weekday(weekday: Weekday, hour: u32) -> Duration {
+    let now = Utc::now();
+    let mut candidate = now
+        .date_naive()
+        .and_hms_opt(hour, 0, 0)
+        .expect("valid hour constant");
+    while candidate.weekday() != weekday || candidate <= now.naive_utc() {
+        candidate += ChronoDuration::days(1);
+    }
+    (candidate - now.naive_utc())
+        .to_std()
+        .unwrap_or(Duration::from_secs(0))
+}
+
+async fn capture_operational_snapshot(store: &Store, cadence: &str) {
+    let ctx = SystemSnapshotContext {
+        application_revision: std::env::var("ERYTHEON_APPLICATION_REVISION").ok(),
+        application_image: std::env::var("ERYTHEON_APPLICATION_IMAGE").ok(),
+        application_restart_count: None,
+        caddy_state: std::env::var("ERYTHEON_CADDY_STATE").ok(),
+    };
+    match store
+        .capture_system_snapshot(SNAPSHOT_ENVIRONMENT, cadence, Utc::now(), &ctx)
+        .await
+    {
+        Ok(snapshot) => {
+            tracing::info!(
+                cadence,
+                snapshot_id = snapshot.id,
+                checksum = %snapshot.checksum,
+                "operational snapshot captured"
+            );
+            match store
+                .evaluate_and_record_alerts(&snapshot, FreshnessThresholds::default())
+                .await
+            {
+                Ok(alerts) if !alerts.is_empty() => {
+                    tracing::warn!(count = alerts.len(), "new observability alerts recorded");
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::error!(%error, "failed to evaluate observability alert rules");
+                }
+            }
+        }
+        Err(error) => {
+            tracing::error!(cadence, %error, "operational snapshot capture failed; continuing");
+        }
+    }
+}
+
+async fn snapshot_operational_hourly(store: Store) {
+    let mut ticker = interval(Duration::from_hours(1));
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        capture_operational_snapshot(&store, "hourly").await;
+    }
+}
+
+async fn snapshot_operational_daily(store: Store) {
+    tokio::time::sleep(duration_until_next_utc_time(
+        DAILY_SNAPSHOT_HOUR_UTC,
+        DAILY_SNAPSHOT_MINUTE_UTC,
+    ))
+    .await;
+    let mut ticker = interval(DAY);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        capture_operational_snapshot(&store, "daily").await;
+        ticker.tick().await;
+    }
+}
+
+async fn snapshot_scientific_weekly(store: Store) {
+    tokio::time::sleep(duration_until_next_utc_weekday(
+        WEEKLY_SNAPSHOT_WEEKDAY,
+        WEEKLY_SNAPSHOT_HOUR_UTC,
+    ))
+    .await;
+    let mut ticker = interval(WEEK);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        match store.capture_weekly_scientific_snapshot(Utc::now()).await {
+            Ok(snapshot) => {
+                tracing::info!(
+                    snapshot_id = %snapshot.id,
+                    status = %snapshot.status,
+                    cell_count_present = snapshot.cell_count_present,
+                    missing_count = snapshot.missing_count,
+                    "scientific snapshot pilot captured"
+                );
+            }
+            Err(error) => {
+                tracing::error!(%error, "scientific snapshot capture failed; continuing");
+            }
+        }
+        ticker.tick().await;
     }
 }

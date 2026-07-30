@@ -9,6 +9,19 @@ BEGIN;
 
 DO $$
 BEGIN
+    -- Phase 4A.5 (migration 0019) added
+    -- observability.scientific_snapshots.static_snapshot_id, a foreign
+    -- key onto this table. Roll back 0019 (and its own dependents,
+    -- 0020-0021) before 0013, the same way 0015's dependents already
+    -- had to be rolled back first.
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'observability' AND table_name = 'scientific_snapshots'
+    ) THEN
+        RAISE EXCEPTION
+            'refusing out-of-order rollback: migration 0019 must be rolled back before 0013';
+    END IF;
+
     IF EXISTS (SELECT 1 FROM features.feature_snapshots) THEN
         RAISE EXCEPTION
             'refusing destructive rollback: feature snapshot data exists';

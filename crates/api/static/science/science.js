@@ -920,6 +920,98 @@
         </div>`;
     },
 
+    async observability() {
+      const [overview, sources, latest, history, compare, snapshots, alerts] = await Promise.all([
+        fetchJSON("/api/science/overview"),
+        fetchJSON("/api/science/sources"),
+        fetchJSON("/api/science/observability/latest").catch(() => null),
+        fetchJSON("/api/science/observability/history?days=30").catch(() => []),
+        fetchJSON("/api/science/observability/compare?days=1,7").catch(() => []),
+        fetchJSON("/api/science/snapshots?limit=20").catch(() => []),
+        fetchJSON("/api/science/snapshot-alerts?limit=20").catch(() => []),
+      ]);
+      updateShellContext(overview, sources);
+
+      if (!latest) {
+        return `
+          ${pageHeader("Observabilité", "Snapshots automatisés", "Mémoire opérationnelle et scientifique du système, phase 4A.5.", "Lecture directe")}
+          ${emptyState("Aucun snapshot capturé", "Le job planifié (quotidien 02:15 UTC) ou la commande `snapshot-operational` n'a pas encore produit de capture.")}`;
+      }
+
+      const freshnessRow = (labelText, ageSeconds) => {
+        if (ageSeconds === null || ageSeconds === undefined) return status("Indisponible", "danger");
+        const hours = ageSeconds / 3600;
+        const tone = hours < 3 ? "ok" : hours < 6 ? "neutral" : hours < 12 ? "warning" : "danger";
+        return status(`${labelText} · ${hours < 1 ? `${Math.round(ageSeconds / 60)} min` : `${hours.toFixed(1)} h`}`, tone);
+      };
+
+      const compareRows = compare.flatMap((report) => (
+        report.available
+          ? report.entries.map((entry) => ({ ...entry, days_ago: report.days_ago }))
+          : [{ metric: `— aucune donnée à J-${report.days_ago} —`, days_ago: report.days_ago, current_value: null, previous_value: null, absolute_delta: null, relative_delta: null, status: "not_comparable" }]
+      ));
+
+      return `
+        ${pageHeader("Observabilité", "Snapshots automatisés", "Mémoire opérationnelle et scientifique du système, phase 4A.5. Lecture seule ; aucun entraînement, scoring ou activation.", `${fmtNum(history.length)} captures (30 j)`)}
+        ${metricStrip([
+          { label: "Fraîcheur forecast", value: latest.forecast_age_seconds === null ? "—" : fmtAge(latest.forecast_last_complete_at), status: latest.forecast_age_seconds === null ? "Indisponible" : "Mesurée", tone: latest.forecast_age_seconds === null ? "danger" : "ok" },
+          { label: "Fraîcheur FIRMS", value: latest.firms_age_seconds === null ? "—" : fmtAge(latest.firms_last_success_at), status: latest.firms_age_seconds === null ? "Indisponible" : "Mesurée", tone: latest.firms_age_seconds === null ? "danger" : "ok" },
+          { label: "Modèles actifs", value: fmtNum(latest.active_model_count), detail: "1 attendu" },
+          { label: "Candidat", value: latest.candidate_status ?? "—", detail: "jamais actif" },
+          { label: "Erreurs (24 h)", value: fmtNum(latest.error_count_24h), detail: `${fmtNum(latest.warning_count_24h)} avertissements` },
+          { label: "Snapshots scientifiques", value: fmtNum(snapshots.length), detail: "manifestes publiés" },
+        ])}
+        <div class="sci-page-grid">
+          <section class="sci-panel sci-span-6">
+            ${panelHeader("Aujourd'hui", `Capturé le ${fmtDate(latest.captured_at)} · empreinte ${latest.checksum.slice(0, 12)}…`)}
+            <ul class="sci-health-list">
+              <li><span>${def("checksum", "Fraîcheur forecast")}</span>${freshnessRow("forecast", latest.forecast_age_seconds)}</li>
+              <li><span>Fraîcheur FIRMS</span>${freshnessRow("FIRMS", latest.firms_age_seconds)}</li>
+              <li><span>Application</span>${status(latest.application_healthy ? "Saine" : "Dégradée", latest.application_healthy ? "ok" : "danger")}</li>
+              <li><span>PostgreSQL</span>${status(latest.database_healthy ? "Saine" : "Dégradée", latest.database_healthy ? "ok" : "danger")}</li>
+              <li><span>Caddy</span>${status(latest.caddy_state)}</li>
+              <li><span>Migrations</span>${status(`${fmtNum(latest.migrations_applied)} appliquées, ${fmtNum(latest.migrations_failed)} échouées`, latest.migrations_failed ? "danger" : "ok")}</li>
+              <li><span>Shadow scoring</span>${status(latest.shadow_scoring_enabled ? "Actif (anomalie)" : "Non déployé", latest.shadow_scoring_enabled ? "danger" : "ok")}</li>
+            </ul>
+          </section>
+          <section class="sci-panel sci-span-6">
+            ${panelHeader("Comparaison temporelle", "Aujourd'hui vs. J-1 et J-7 ; jamais de pourcentage sur dénominateur nul.")}
+            ${table(
+              ["Métrique", "J-N", "Actuel", "Précédent", "Écart"],
+              compareRows,
+              (row) => `<tr><td>${escapeHtml(row.metric)}</td><td>J-${row.days_ago}</td><td>${fmtNum(row.current_value)}</td><td>${fmtNum(row.previous_value)}</td><td>${row.absolute_delta === null ? "—" : `${row.absolute_delta > 0 ? "+" : ""}${fmtNum(row.absolute_delta)}${row.relative_delta === null ? "" : ` (${row.relative_delta > 0 ? "+" : ""}${row.relative_delta.toFixed(1)} %)`}`}</td></tr>`,
+              "Comparaison J-1/J-7",
+              true,
+            )}
+          </section>
+          <section class="sci-panel sci-span-7">
+            ${panelHeader("Snapshots scientifiques", "Pilote hebdomadaire, horizon nowcast uniquement — voir PHASE4A5_SNAPSHOT_ARCHITECTURE_DECISION.md.", `${fmtNum(snapshots.length)} manifestes`)}
+            ${table(
+              ["Date", "Type", "Cellules", "Couverture", "Statut", "Empreinte", "Bundle statique"],
+              snapshots,
+              (snap) => `<tr>
+                <td>${fmtShortDate(snap.valid_at)}</td><td>${escapeHtml(snap.snapshot_type)}</td>
+                <td>${fmtNum(snap.cell_count_present)} / ${fmtNum(snap.cell_count_expected)}</td>
+                <td>${snap.cell_count_expected ? fmtPct(snap.cell_count_present / snap.cell_count_expected) : "—"}</td>
+                <td>${status(snap.status)}</td><td class="sci-mono">${escapeHtml((snap.checksum ?? "").slice(0, 10) || "—")}</td>
+                <td>${snap.static_snapshot_id ? "référencé" : "aucun"}</td>
+              </tr>`,
+              "Snapshots scientifiques",
+            )}
+          </section>
+          <aside class="sci-panel sci-span-5">
+            ${panelHeader("Alertes", "Règles versionnées ; enregistrement et affichage seulement.", `${fmtNum(alerts.length)} alertes`)}
+            ${table(
+              ["Date", "Niveau", "Règle", "Message"],
+              alerts,
+              (alert) => `<tr><td>${fmtShortDate(alert.detected_at)}</td><td>${status(alert.severity, alert.severity === "critical" ? "danger" : alert.severity === "warning" ? "warning" : "neutral")}</td><td class="sci-mono">${escapeHtml(alert.rule_id)}</td><td>${escapeHtml(alert.message)}</td></tr>`,
+              "Alertes d'observabilité",
+              true,
+            )}
+          </aside>
+        </div>`;
+    },
+
     async progress() {
       const phases = await fetchJSON("/api/science/progress");
       const productionPhases = phases.filter((phase) => phase.production_affected).length;
