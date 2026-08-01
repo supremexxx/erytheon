@@ -18,7 +18,7 @@
 - Clippy workspace strict `-D warnings` : réussi ;
 - compilation de toutes les suites : réussie ;
 - CI PostgreSQL/PostGIS sur le premier commit de la PR : deux exécutions réussies ;
-- la CI finale doit valider les compléments de vérification stricte et de synthèse après push.
+- CI finale du commit `14b18ef` : deux exécutions réussies, suite workspace PostGIS incluse.
 
 ## Limite locale
 
