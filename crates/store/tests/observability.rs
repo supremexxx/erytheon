@@ -1,4 +1,4 @@
-use chrono::{Duration, Utc};
+use chrono::{Duration, Timelike as _, Utc};
 use sqlx::PgPool;
 use store::{FreshnessThresholds, Store, SystemSnapshotContext};
 
@@ -13,12 +13,17 @@ async fn connect() -> Option<(Store, PgPool)> {
 }
 
 #[tokio::test]
-async fn system_snapshot_capture_is_idempotent_same_day() {
+async fn system_snapshot_capture_is_idempotent_same_daily_window() {
     let Some((store, pool)) = connect().await else {
         eprintln!("skipping: DATABASE_URL not configured");
         return;
     };
     let environment = "test-idempotent";
+    sqlx::query("DELETE FROM observability.snapshot_capture_attempts WHERE environment = $1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup attempts");
     sqlx::query("DELETE FROM observability.system_snapshots WHERE environment = $1")
         .bind(environment)
         .execute(&pool)
@@ -53,10 +58,184 @@ async fn system_snapshot_capture_is_idempotent_same_day() {
     .fetch_one(&pool)
     .await
     .expect("count");
-    assert_eq!(
-        count, 1,
-        "unique (environment, capture_date, cadence) must hold"
+    assert_eq!(count, 1, "unique daily window must hold");
+}
+
+#[tokio::test]
+async fn hourly_snapshots_keep_distinct_buckets_and_auditable_replays() {
+    let Some((store, pool)) = connect().await else {
+        eprintln!("skipping: DATABASE_URL not configured");
+        return;
+    };
+    let environment = "test-hourly-buckets";
+    sqlx::query("DELETE FROM observability.snapshot_capture_attempts WHERE environment=$1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup attempts");
+    sqlx::query("DELETE FROM observability.system_snapshots WHERE environment=$1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup snapshots");
+    let base = (Utc::now() - Duration::hours(3))
+        .with_minute(0)
+        .and_then(|value| value.with_second(0))
+        .and_then(|value| value.with_nanosecond(0))
+        .expect("exact UTC hour");
+    let first = store
+        .capture_system_snapshot(
+            environment,
+            "hourly",
+            base,
+            &SystemSnapshotContext::default(),
+        )
+        .await
+        .expect("first hour");
+    let replay = store
+        .capture_system_snapshot(
+            environment,
+            "hourly",
+            base + Duration::minutes(20),
+            &SystemSnapshotContext::default(),
+        )
+        .await
+        .expect("same-hour replay");
+    let next = store
+        .capture_system_snapshot(
+            environment,
+            "hourly",
+            base + Duration::hours(1),
+            &SystemSnapshotContext::default(),
+        )
+        .await
+        .expect("next hour");
+    assert_eq!(first.id, replay.id);
+    assert_ne!(first.id, next.id);
+    assert_eq!(first.capture_window_start, replay.capture_window_start);
+    let attempts: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM observability.snapshot_capture_attempts WHERE environment=$1",
+    )
+    .bind(environment)
+    .fetch_one(&pool)
+    .await
+    .expect("attempt count");
+    assert_eq!(attempts, 3);
+}
+
+#[tokio::test]
+async fn concurrent_hourly_replay_converges_on_one_snapshot() {
+    let Some((store, pool)) = connect().await else {
+        eprintln!("skipping: DATABASE_URL not configured");
+        return;
+    };
+    let environment = "test-hourly-concurrent";
+    sqlx::query("DELETE FROM observability.snapshot_capture_attempts WHERE environment=$1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup attempts");
+    sqlx::query("DELETE FROM observability.system_snapshots WHERE environment=$1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup snapshots");
+    let at = Utc::now() - Duration::hours(6);
+    let left_store = store.clone();
+    let right_store = store.clone();
+    let left_context = SystemSnapshotContext::default();
+    let right_context = SystemSnapshotContext::default();
+    let (left, right) = tokio::join!(
+        left_store.capture_system_snapshot(environment, "hourly", at, &left_context),
+        right_store.capture_system_snapshot(
+            environment,
+            "hourly",
+            at + Duration::minutes(5),
+            &right_context
+        ),
     );
+    let left = left.expect("left capture");
+    let right = right.expect("right capture");
+    assert_eq!(left.id, right.id);
+    let attempts: Vec<i32> = sqlx::query_scalar(
+        "SELECT attempt_number FROM observability.snapshot_capture_attempts
+         WHERE environment=$1 ORDER BY attempt_number",
+    )
+    .bind(environment)
+    .fetch_all(&pool)
+    .await
+    .expect("attempt sequence");
+    assert_eq!(attempts, vec![1, 2]);
+}
+
+#[tokio::test]
+async fn twenty_four_utc_slots_cross_midnight_and_report_a_real_gap() {
+    let Some((store, pool)) = connect().await else {
+        eprintln!("skipping: DATABASE_URL not configured");
+        return;
+    };
+    let environment = "test-hourly-24";
+    sqlx::query("DELETE FROM observability.snapshot_capture_attempts WHERE environment=$1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup attempts");
+    sqlx::query("DELETE FROM observability.system_snapshots WHERE environment=$1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup snapshots");
+    let start = (Utc::now().date_naive() - Duration::days(3))
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight")
+        .and_utc();
+    for hour in 0..24 {
+        let row = store
+            .capture_system_snapshot(
+                environment,
+                "hourly",
+                start + Duration::hours(hour),
+                &SystemSnapshotContext::default(),
+            )
+            .await
+            .expect("hourly capture");
+        assert_eq!(row.capture_window_start.minute(), 0);
+    }
+    let next_day = store
+        .capture_system_snapshot(
+            environment,
+            "hourly",
+            start + Duration::hours(24),
+            &SystemSnapshotContext::default(),
+        )
+        .await
+        .expect("midnight next day");
+    assert_ne!(next_day.capture_date, start.date_naive());
+    sqlx::query(
+        "DELETE FROM observability.snapshot_capture_attempts
+         WHERE environment=$1 AND capture_window_start=$2",
+    )
+    .bind(environment)
+    .bind(start + Duration::hours(12))
+    .execute(&pool)
+    .await
+    .expect("remove attempt");
+    sqlx::query(
+        "DELETE FROM observability.system_snapshots
+         WHERE environment=$1 AND capture_window_start=$2",
+    )
+    .bind(environment)
+    .bind(start + Duration::hours(12))
+    .execute(&pool)
+    .await
+    .expect("create gap");
+    let summary = store
+        .hourly_snapshot_summary(environment)
+        .await
+        .expect("summary");
+    assert_eq!(summary.expected_slots, 25);
+    assert_eq!(summary.present_slots, 24);
+    assert_eq!(summary.missing_slots, 1);
 }
 
 #[tokio::test]
@@ -66,6 +245,11 @@ async fn system_snapshot_reports_forecast_and_firms_absence_honestly() {
         return;
     };
     let environment = "test-absence";
+    sqlx::query("DELETE FROM observability.snapshot_capture_attempts WHERE environment = $1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup attempts");
     sqlx::query("DELETE FROM observability.system_snapshots WHERE environment = $1")
         .bind(environment)
         .execute(&pool)
@@ -98,6 +282,11 @@ async fn compare_j1_reports_deltas_and_avoids_division_by_zero() {
         return;
     };
     let environment = "test-compare";
+    sqlx::query("DELETE FROM observability.snapshot_capture_attempts WHERE environment = $1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup attempts");
     sqlx::query("DELETE FROM observability.system_snapshots WHERE environment = $1")
         .bind(environment)
         .execute(&pool)
@@ -153,6 +342,11 @@ async fn alerts_flag_missing_active_model_and_are_not_duplicated_on_replay() {
         .execute(&pool)
         .await
         .expect("cleanup alerts");
+    sqlx::query("DELETE FROM observability.snapshot_capture_attempts WHERE environment = $1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup attempts");
     sqlx::query("DELETE FROM observability.system_snapshots WHERE environment = $1")
         .bind(environment)
         .execute(&pool)
@@ -191,57 +385,15 @@ async fn alerts_flag_missing_active_model_and_are_not_duplicated_on_replay() {
 }
 
 #[tokio::test]
-async fn weekly_scientific_snapshot_is_idempotent_and_published_immutable() {
+async fn scientific_v2_refuses_incomplete_deployment_provenance() {
     let Some((store, pool)) = connect().await else {
         eprintln!("skipping: DATABASE_URL not configured");
         return;
     };
-    let valid_at = Utc::now();
-    let logical_id = format!("scientific-weekly-nowcast-{}", valid_at.format("%Y-%m-%d"));
-    sqlx::query(
-        "DELETE FROM observability.scientific_snapshot_values WHERE snapshot_id IN
-            (SELECT id FROM observability.scientific_snapshots WHERE logical_id = $1)",
-    )
-    .bind(&logical_id)
-    .execute(&pool)
-    .await
-    .expect("cleanup values");
-    sqlx::query("DELETE FROM observability.scientific_snapshots WHERE logical_id = $1")
-        .bind(&logical_id)
-        .execute(&pool)
+    drop(pool);
+    let error = store
+        .capture_weekly_scientific_snapshot(Utc::now())
         .await
-        .expect("cleanup manifest");
-
-    let first = store
-        .capture_weekly_scientific_snapshot(valid_at)
-        .await
-        .expect("first capture");
-    assert_eq!(first.status, "published");
-    assert!(first.checksum.is_some());
-    assert_eq!(
-        first.cell_count_expected,
-        first.cell_count_present + first.missing_count
-    );
-
-    let second = store
-        .capture_weekly_scientific_snapshot(valid_at)
-        .await
-        .expect("second capture must be a safe no-op, not an error");
-    assert_eq!(first.id, second.id);
-    assert_eq!(
-        first.checksum, second.checksum,
-        "replay must not silently change published content"
-    );
-
-    let value_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM observability.scientific_snapshot_values WHERE snapshot_id = $1::uuid",
-    )
-    .bind(&first.id)
-    .fetch_one(&pool)
-    .await
-    .expect("count values");
-    assert_eq!(
-        value_count,
-        first.cell_count_present + (first.missing_count)
-    );
+        .expect_err("missing revision/image lineage must fail closed");
+    assert!(error.to_string().contains("snapshot contract violation"));
 }

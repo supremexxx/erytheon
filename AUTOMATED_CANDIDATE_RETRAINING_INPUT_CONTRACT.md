@@ -7,12 +7,16 @@ décision humaine séparée, conformément à `MODEL_PROMOTION_PLAN.md` et au ve
 
 ## 1. Familles de snapshots consommées
 
-- `observability.scientific_snapshots` (statut `published` uniquement) et
+- `observability.scientific_snapshots` (contrat v2, statut `published`,
+  `completeness_status = 'complete'` et vérification stricte valide uniquement) et
   `observability.scientific_snapshot_values` pour les caractéristiques dynamiques (FWI ; météo
   brute absente dans ce pilote, voir `PHASE4A5_SCIENTIFIC_SNAPSHOT_REPORT.md` §2).
-- `features.feature_snapshots` (statut `active`) pour le bundle statique référencé par
-  `static_snapshot_id`.
-- `ml.snapshot_label_links` pour les causes BDIFF différées, avec `matching_rule_version` explicite.
+- `features.feature_snapshots` (statut `active`) et `features.feature_snapshot_values` pour le
+  bundle statique immuable référencé par `static_snapshot_id`.
+- `ml.snapshot_label_links` pour les causes BDIFF différées, avec `matching_rule_version`,
+  `maturity_status = 'mature'` et `is_current = true` explicites.
+- Les snapshots `contract_version = 1` sont consultables et vérifiables en mode legacy, mais
+  interdits comme entrée d'un futur dataset automatisé.
 - `ml.dataset_versions`/`ml.dataset_rows` restent la voie de construction de dataset existante
   (phase 3B) — ce contrat ne la remplace pas, il prépare une source additionnelle de features
   historisées et vérifiables pour une future version.

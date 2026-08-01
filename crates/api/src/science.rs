@@ -37,8 +37,15 @@ pub fn router() -> Router<AppState> {
         .route("/observability/latest", get(observability_latest))
         .route("/observability/history", get(observability_history))
         .route("/observability/compare", get(observability_compare))
+        .route("/observability/attempts", get(observability_attempts))
+        .route(
+            "/observability/hourly-summary",
+            get(observability_hourly_summary),
+        )
         .route("/snapshots", get(snapshots))
         .route("/snapshots/{id}", get(snapshot_detail))
+        .route("/snapshots/{id}/verification", get(snapshot_verification))
+        .route("/snapshot-labels/summary", get(snapshot_label_summary))
         .route("/snapshot-alerts", get(snapshot_alerts))
 }
 
@@ -93,6 +100,35 @@ async fn observability_history(
         state
             .store()
             .system_snapshot_history(environment, cadence, days)
+            .await
+            .map_err(database_error)?,
+    ))
+}
+
+async fn observability_attempts(
+    State(state): State<AppState>,
+    Query(query): Query<ObservabilityHistoryQuery>,
+) -> Result<Json<Vec<store::SnapshotCaptureAttemptRow>>, ApiError> {
+    let environment = query.environment.as_deref().unwrap_or(DEFAULT_ENVIRONMENT);
+    let limit = query.days.unwrap_or(50).clamp(1, 200);
+    Ok(Json(
+        state
+            .store()
+            .list_snapshot_capture_attempts(environment, limit)
+            .await
+            .map_err(database_error)?,
+    ))
+}
+
+async fn observability_hourly_summary(
+    State(state): State<AppState>,
+    Query(query): Query<ObservabilityQuery>,
+) -> Result<Json<store::HourlySnapshotSummary>, ApiError> {
+    let environment = query.environment.as_deref().unwrap_or(DEFAULT_ENVIRONMENT);
+    Ok(Json(
+        state
+            .store()
+            .hourly_snapshot_summary(environment)
             .await
             .map_err(database_error)?,
     ))
@@ -177,6 +213,31 @@ async fn snapshot_detail(
         .ok_or_else(|| {
             ApiError::not_found("snapshot_not_found", "no scientific snapshot with this id")
         })
+}
+
+async fn snapshot_verification(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<store::ScientificSnapshotVerification>, ApiError> {
+    Ok(Json(
+        state
+            .store()
+            .verify_scientific_snapshot(&id)
+            .await
+            .map_err(database_error)?,
+    ))
+}
+
+async fn snapshot_label_summary(
+    State(state): State<AppState>,
+) -> Result<Json<store::DeferredLabelSummary>, ApiError> {
+    Ok(Json(
+        state
+            .store()
+            .deferred_label_summary()
+            .await
+            .map_err(database_error)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]

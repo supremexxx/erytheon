@@ -9,13 +9,92 @@ use serde::Serialize;
 use serde_json::json;
 use store::{FreshnessThresholds, Store, SystemSnapshotContext};
 
-use crate::config::Config;
+use crate::{config::Config, territory::Territory};
 
 const CODE_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Matches `scheduler::SNAPSHOT_ENVIRONMENT`: this pilot runs a single
 /// environment bucket. A multi-environment deployment would need this
 /// sourced from configuration instead of duplicated as a constant.
 const ENVIRONMENT: &str = "default";
+
+pub async fn run_static_bundle(config: Config) -> anyhow::Result<()> {
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize snapshot database")?;
+    let id = store
+        .build_cell_static_bundle(i16::from(config.h3_resolution), CODE_VERSION)
+        .await
+        .context("failed to build immutable cell_static bundle")?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "static_snapshot_id": id,
+            "status": "active",
+            "h3_resolution": config.h3_resolution,
+        }))?
+    );
+    Ok(())
+}
+
+pub async fn run_coverage_mask(config: Config) -> anyhow::Result<()> {
+    let path = config
+        .territory_geojson_path
+        .as_deref()
+        .context("TERRITORY_GEOJSON_PATH is required")?;
+    let grid = grid::H3Grid::new(config.h3_resolution).context("invalid H3 resolution")?;
+    let territory = Territory::load(path, &config.territory_codes, grid)?;
+    let cells = territory
+        .partitions
+        .iter()
+        .flat_map(|partition| partition.cells.iter().copied())
+        .map(grid::cell_to_db)
+        .collect::<Vec<_>>();
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize snapshot database")?;
+    let id = store
+        .publish_coverage_mask(
+            "operational_aoi",
+            i16::from(config.h3_resolution),
+            &cells,
+            "configured_department_geojson",
+        )
+        .await
+        .context("failed to publish coverage mask")?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "coverage_mask_id": id,
+            "status": "published",
+            "modelable_cells": cells.len(),
+            "h3_resolution": config.h3_resolution,
+        }))?
+    );
+    Ok(())
+}
+
+pub async fn run_label_linking(
+    config: Config,
+    snapshot_id: String,
+    mature_before: Option<DateTime<Utc>>,
+    apply: bool,
+    limit: i64,
+) -> anyhow::Result<()> {
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize snapshot database")?;
+    let report = store
+        .link_mature_snapshot_labels(
+            &snapshot_id,
+            mature_before.unwrap_or_else(Utc::now),
+            !apply,
+            limit,
+        )
+        .await
+        .context("failed to evaluate deferred BDIFF links")?;
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
 
 #[derive(Clone, Debug)]
 pub struct OperationalSnapshotOptions {
@@ -37,10 +116,23 @@ pub async fn run_operational_snapshot(
         .context("failed to initialize observability database")?;
     let captured_at = options.at.unwrap_or_else(Utc::now);
     let ctx = SystemSnapshotContext {
-        application_revision: std::env::var("ERYTHEON_APPLICATION_REVISION").ok(),
-        application_image: std::env::var("ERYTHEON_APPLICATION_IMAGE").ok(),
+        application_revision: std::env::var("ERYTHEON_GIT_REVISION")
+            .or_else(|_| std::env::var("ERYTHEON_APPLICATION_REVISION"))
+            .ok(),
+        application_image: std::env::var("ERYTHEON_IMAGE_REFERENCE")
+            .or_else(|_| std::env::var("ERYTHEON_APPLICATION_IMAGE"))
+            .ok(),
+        application_image_digest: std::env::var("ERYTHEON_IMAGE_DIGEST").ok(),
         application_restart_count: None,
         caddy_state: std::env::var("ERYTHEON_CADDY_STATE").ok(),
+        trigger_kind: Some(
+            if options.at.is_some() {
+                "replay"
+            } else {
+                "manual"
+            }
+            .to_owned(),
+        ),
     };
     let snapshot = store
         .capture_system_snapshot(ENVIRONMENT, &options.cadence, captured_at, &ctx)
@@ -103,23 +195,18 @@ pub async fn run_verify_snapshot(
     let store = Store::connect(&config.database_url)
         .await
         .context("failed to initialize observability database")?;
-    let snapshot = store
-        .get_scientific_snapshot(&options.id)
+    let report = store
+        .verify_scientific_snapshot(&options.id)
         .await
-        .context("failed to load scientific snapshot")?
-        .ok_or_else(|| anyhow::anyhow!("no scientific snapshot with id {}", options.id))?;
+        .context("failed to verify scientific snapshot")?;
     anyhow::ensure!(
-        snapshot.status == "published",
-        "snapshot {} is not published (status = {})",
+        report.valid,
+        "snapshot {} failed {} verification: {}",
         options.id,
-        snapshot.status
+        report.mode,
+        report.errors.join("; ")
     );
-    anyhow::ensure!(
-        snapshot.complete,
-        "snapshot {} is published but incomplete: missing_count > 0",
-        options.id
-    );
-    println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
 
