@@ -78,7 +78,11 @@ async fn hourly_snapshots_keep_distinct_buckets_and_auditable_replays() {
         .execute(&pool)
         .await
         .expect("cleanup snapshots");
-    let base = Utc::now() - Duration::hours(3);
+    let base = (Utc::now() - Duration::hours(3))
+        .with_minute(0)
+        .and_then(|value| value.with_second(0))
+        .and_then(|value| value.with_nanosecond(0))
+        .expect("exact UTC hour");
     let first = store
         .capture_system_snapshot(
             environment,
