@@ -94,7 +94,7 @@ async fn coverage_mask_is_deterministic_and_frozen_after_publication() {
 
 #[tokio::test]
 async fn legacy_scientific_manifest_keeps_v1_traceability_classification() {
-    let Some((_store, pool)) = connect().await else {
+    let Some((store, pool)) = connect().await else {
         eprintln!("skipping: DATABASE_URL not configured");
         return;
     };
@@ -102,18 +102,50 @@ async fn legacy_scientific_manifest_keeps_v1_traceability_classification() {
         "test-legacy-snapshot-{}",
         Utc::now().timestamp_nanos_opt().unwrap_or_default()
     );
-    let row: (i16, String) = sqlx::query_as(
+    let row: (String, i16, String) = sqlx::query_as(
         "INSERT INTO observability.scientific_snapshots(
             logical_id,snapshot_type,resolution_h3,valid_at,captured_at,
             feature_schema_version,transform_version,cell_count_expected,
             storage_kind,storage_location,status,temporal_classification)
          VALUES($1,'metadata_only',8,NOW(),NOW(),'v1','v1',0,
                 'metadata_only','legacy-test','building','current_snapshot_applied_historically')
-         RETURNING contract_version,traceability_status",
+         RETURNING id::text,contract_version,traceability_status",
     )
     .bind(logical_id)
     .fetch_one(&pool)
     .await
     .expect("legacy manifest");
-    assert_eq!(row, (1, "legacy_incomplete".to_owned()));
+    assert_eq!(row.1, 1);
+    assert_eq!(row.2, "legacy_incomplete");
+    sqlx::query(
+        "INSERT INTO observability.scientific_snapshot_values
+            (snapshot_id,h3,valid_at,fwi,data_status)
+         VALUES($1::uuid,6171000000000021,NOW(),NULL,'missing')",
+    )
+    .bind(&row.0)
+    .execute(&pool)
+    .await
+    .expect("legacy value");
+    let checksum: String = sqlx::query_scalar(
+        "SELECT encode(digest(string_agg(h3::text||':'||coalesce(fwi::text,'null')||':'||data_status,
+          ',' ORDER BY h3),'sha256'),'hex')
+         FROM observability.scientific_snapshot_values WHERE snapshot_id=$1::uuid",
+    ).bind(&row.0).fetch_one(&pool).await.expect("checksum");
+    sqlx::query(
+        "UPDATE observability.scientific_snapshots
+         SET cell_count_present=0,missing_count=1,checksum=$2,status='published',published_at=NOW()
+         WHERE id=$1::uuid",
+    )
+    .bind(&row.0)
+    .bind(checksum)
+    .execute(&pool)
+    .await
+    .expect("publish legacy");
+    let verification = store
+        .verify_scientific_snapshot(&row.0)
+        .await
+        .expect("verify legacy");
+    assert!(verification.valid);
+    assert_eq!(verification.mode, "legacy");
+    assert!(!verification.warnings.is_empty());
 }

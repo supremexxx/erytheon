@@ -569,18 +569,54 @@ impl Store {
             return Err(StoreError::InvalidPersistedCount(cell_count));
         }
 
+        if let Some(id) = sqlx::query_scalar::<_, String>(
+            "SELECT id::text FROM features.feature_snapshots
+             WHERE family='cell_static_bundle' AND logical_checksum=$1 AND status='active'",
+        )
+        .bind(&checksum)
+        .fetch_optional(&self.pool)
+        .await?
+        {
+            return Ok(id);
+        }
+
         let mut transaction = self.pool.begin().await?;
+        let pipeline_run_id: String = sqlx::query_scalar(
+            "INSERT INTO ops.pipeline_runs(
+                id,pipeline_name,pipeline_version,status,started_at,trigger_type,
+                parameters,code_version)
+             VALUES(gen_random_uuid(),'cell_static_bundle','v2','running',NOW(),'snapshot',
+                    jsonb_build_object('h3_resolution',$1,'checksum',$2),$3)
+             RETURNING id::text",
+        )
+        .bind(h3_resolution)
+        .bind(&checksum)
+        .bind(code_version)
+        .fetch_one(&mut *transaction)
+        .await?;
         let inserted_snapshot_id: Option<String> = sqlx::query_scalar(
             "INSERT INTO features.feature_snapshots (
                 family, source, provider, vintage, available_from, retrieved_at,
-                code_version, normalizer_version, parameters, source_checksum,
+                pipeline_run_id,code_version, normalizer_version, parameters, source_checksum,
                 logical_checksum, reference_table, cell_count, h3_resolution,
                 geographic_coverage, status, temporal_classification, limitations, notes
              ) VALUES (
                 'cell_static_bundle', 'public.cell_static', 'ERYTHEON',
                 to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),
-                NOW(), NOW(), $1, 'cell-static-json-v1',
-                jsonb_build_object('contract_version',2,'ordering','h3_asc','hash','sha256'),
+                NOW(), NOW(),$5::uuid, $1, 'cell-static-json-v1',
+                jsonb_build_object(
+                  'contract_version',2,'ordering','h3_asc','hash','sha256',
+                  'columns',jsonb_build_object(
+                    'hist',jsonb_build_object('source','cell_static','transform','existing_v1','temporal','current_snapshot_applied_historically','zero','no recorded density','missing','invalid'),
+                    'wui',jsonb_build_object('source','cell_static','transform','existing_v1','temporal','current_snapshot_applied_historically','zero','no recorded exposure','missing','invalid'),
+                    'road',jsonb_build_object('source','cell_static','transform','existing_v1','temporal','current_snapshot_applied_historically','zero','no recorded proximity','missing','invalid'),
+                    'agri',jsonb_build_object('source','cell_static','transform','existing_v1','temporal','current_snapshot_applied_historically','zero','no recorded exposure','missing','invalid'),
+                    'combustible',jsonb_build_object('source','cell_static','transform','existing_v1','temporal','current_snapshot_applied_historically','zero','non-combustible','missing','invalid'),
+                    'population',jsonb_build_object('source','cell_static','transform','existing_v1','temporal','current_snapshot_applied_historically','zero','no recorded population','missing','invalid'),
+                    'poi',jsonb_build_object('source','cell_static','transform','existing_v1','temporal','current_snapshot_applied_historically','zero','no recorded POI','missing','invalid'),
+                    'power_line',jsonb_build_object('source','cell_static','transform','existing_v1','temporal','current_snapshot_applied_historically','zero','no recorded proximity','missing','invalid'),
+                    'school_zone',jsonb_build_object('source','cell_static','transform','existing_v1','temporal','current_snapshot_applied_historically','zero','not applicable','missing','invalid','limitation','current C placeholder')
+                  )),
                 $2, $2, 'features.feature_snapshot_values', $3, $4,
                 jsonb_build_object('kind','full_static_registry'), 'draft',
                 'current_snapshot_applied_historically',
@@ -593,6 +629,7 @@ impl Store {
         .bind(&checksum)
         .bind(cell_count)
         .bind(h3_resolution)
+        .bind(&pipeline_run_id)
         .fetch_optional(&mut *transaction)
         .await?;
         let snapshot_id = match inserted_snapshot_id {
@@ -614,6 +651,13 @@ impl Store {
                 .fetch_one(&mut *transaction)
                 .await?;
         if status == "active" {
+            sqlx::query(
+                "UPDATE ops.pipeline_runs SET status='succeeded',finished_at=NOW(),
+                 metrics=jsonb_build_object('result','concurrent_replay') WHERE id=$1::uuid",
+            )
+            .bind(&pipeline_run_id)
+            .execute(&mut *transaction)
+            .await?;
             transaction.commit().await?;
             return Ok(snapshot_id);
         }
@@ -668,6 +712,15 @@ impl Store {
         .bind(h3_resolution)
         .bind(&snapshot_id)
         .bind(code_version)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE ops.pipeline_runs SET status='succeeded',finished_at=NOW(),
+             metrics=jsonb_build_object('cell_count',$2,'checksum',$3) WHERE id=$1::uuid",
+        )
+        .bind(&pipeline_run_id)
+        .bind(cell_count)
+        .bind(&checksum)
         .execute(&mut *transaction)
         .await?;
         transaction.commit().await?;

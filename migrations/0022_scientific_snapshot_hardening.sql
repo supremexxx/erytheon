@@ -5,6 +5,7 @@
 ALTER TABLE observability.system_snapshots
     ADD COLUMN capture_window_start TIMESTAMPTZ,
     ADD COLUMN capture_window_end TIMESTAMPTZ,
+    ADD COLUMN application_image_digest TEXT,
     ADD COLUMN provenance_status TEXT NOT NULL DEFAULT 'captured';
 
 UPDATE observability.system_snapshots
@@ -52,6 +53,9 @@ CREATE TABLE observability.snapshot_capture_attempts (
     system_snapshot_id BIGINT REFERENCES observability.system_snapshots(id) ON DELETE RESTRICT,
     application_revision TEXT,
     application_image TEXT,
+    application_image_digest TEXT,
+    rows_processed BIGINT,
+    pipeline_run_id UUID REFERENCES ops.pipeline_runs(id) ON DELETE RESTRICT,
     checksum TEXT,
     error_message TEXT,
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -231,9 +235,14 @@ ALTER TABLE observability.scientific_snapshots
     ADD COLUMN modelable_cell_count BIGINT,
     ADD COLUMN structural_exclusion_count BIGINT NOT NULL DEFAULT 0,
     ADD COLUMN unexpected_missing_count BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN completeness_status TEXT NOT NULL DEFAULT 'legacy_incomplete',
     ADD CONSTRAINT scientific_snapshots_contract_version_check CHECK (contract_version IN (1,2)),
     ADD CONSTRAINT scientific_snapshots_traceability_status_check
         CHECK (traceability_status IN ('legacy_incomplete','complete')),
+    ADD CONSTRAINT scientific_snapshots_completeness_status_check CHECK (
+        completeness_status IN ('legacy_incomplete','building','complete',
+          'published_partial_expected','published_partial_degraded','failed_validation')
+    ),
     ADD CONSTRAINT scientific_snapshots_v2_counts_check CHECK (
         modelable_cell_count IS NULL OR
         (modelable_cell_count >= 0 AND structural_exclusion_count >= 0 AND unexpected_missing_count >= 0)
@@ -245,9 +254,27 @@ ALTER TABLE observability.scientific_snapshots
             application_image_digest IS NOT NULL AND
             forecast_batch_computed_at IS NOT NULL AND forecast_valid_at IS NOT NULL AND
             forecast_horizon = 'nowcast' AND coverage_mask_id IS NOT NULL AND
-            modelable_cell_count IS NOT NULL AND traceability_status = 'complete'
+            modelable_cell_count IS NOT NULL AND pipeline_run_id IS NOT NULL AND
+            traceability_status = 'complete'
         )
     );
+
+CREATE TABLE observability.scientific_snapshot_missing_reasons (
+    snapshot_id UUID NOT NULL REFERENCES observability.scientific_snapshots(id) ON DELETE RESTRICT,
+    reason TEXT NOT NULL,
+    cell_count BIGINT NOT NULL,
+    classification_version TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY(snapshot_id,reason),
+    CONSTRAINT scientific_snapshot_missing_reason_check CHECK (reason IN (
+        'expected_structural_exclusion','non_combustible','outside_operational_aoi',
+        'water_or_invalid_land','forecast_source_uncovered','partition_failed',
+        'h3_mapping_failure','pipeline_filter_exclusion','unexpected_missing',
+        'unknown_missing_reason'
+    )),
+    CONSTRAINT scientific_snapshot_missing_reason_count_check CHECK (cell_count >= 0),
+    CONSTRAINT scientific_snapshot_missing_reason_version_not_blank CHECK (btrim(classification_version)<>'')
+);
 
 ALTER TABLE ml.snapshot_label_links
     ADD COLUMN maturity_status TEXT NOT NULL DEFAULT 'provisional',

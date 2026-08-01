@@ -17,3 +17,7 @@ L'identité par date convenait au quotidien mais pas à l'horaire. Toute exécut
 Les anciennes lignes sont conservées avec `provenance_status=legacy_last_state_only` ou `legacy_day_identity`. Elles ne sont jamais présentées comme un historique horaire complet.
 
 `observability.snapshot_capture_attempts` conserve origine, statut, révision, image, checksum et erreur. Un échec n'efface donc plus la preuve de l'exécution.
+
+La synthèse GET calcule les créneaux attendus entre la première et la dernière fenêtre réellement
+capturées, les créneaux présents, les trous et les tentatives échouées. Les lignes legacy sont
+explicitement exclues de ce calcul.

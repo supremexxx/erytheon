@@ -213,7 +213,14 @@ fn duration_until_next_utc_time(hour: u32, minute: u32) -> Duration {
 
 /// Duration until the next occurrence of `weekday` at `hour:00` UTC.
 fn duration_until_next_utc_weekday(weekday: Weekday, hour: u32) -> Duration {
-    let now = Utc::now();
+    duration_until_next_utc_weekday_from(Utc::now(), weekday, hour)
+}
+
+fn duration_until_next_utc_weekday_from(
+    now: chrono::DateTime<Utc>,
+    weekday: Weekday,
+    hour: u32,
+) -> Duration {
     let mut candidate = now
         .date_naive()
         .and_hms_opt(hour, 0, 0)
@@ -228,8 +235,13 @@ fn duration_until_next_utc_weekday(weekday: Weekday, hour: u32) -> Duration {
 
 async fn capture_operational_snapshot(store: &Store, cadence: &str) {
     let ctx = SystemSnapshotContext {
-        application_revision: std::env::var("ERYTHEON_APPLICATION_REVISION").ok(),
-        application_image: std::env::var("ERYTHEON_APPLICATION_IMAGE").ok(),
+        application_revision: std::env::var("ERYTHEON_GIT_REVISION")
+            .or_else(|_| std::env::var("ERYTHEON_APPLICATION_REVISION"))
+            .ok(),
+        application_image: std::env::var("ERYTHEON_IMAGE_REFERENCE")
+            .or_else(|_| std::env::var("ERYTHEON_APPLICATION_IMAGE"))
+            .ok(),
+        application_image_digest: std::env::var("ERYTHEON_IMAGE_DIGEST").ok(),
         application_restart_count: None,
         caddy_state: std::env::var("ERYTHEON_CADDY_STATE").ok(),
         trigger_kind: Some("scheduler".to_owned()),
@@ -311,5 +323,26 @@ async fn snapshot_scientific_weekly(store: Store) {
             }
         }
         ticker.tick().await;
+    }
+}
+
+#[cfg(test)]
+mod snapshot_schedule_tests {
+    use chrono::{TimeZone as _, Utc, Weekday};
+
+    use super::duration_until_next_utc_weekday_from;
+
+    #[test]
+    fn weekly_snapshot_targets_monday_0300_utc() {
+        let friday = Utc.with_ymd_and_hms(2026, 7, 31, 13, 42, 0).unwrap();
+        let delay = duration_until_next_utc_weekday_from(friday, Weekday::Mon, 3);
+        assert_eq!(delay.as_secs(), 61 * 3600 + 18 * 60);
+    }
+
+    #[test]
+    fn restart_after_monday_slot_targets_next_week_without_double_fire() {
+        let after_slot = Utc.with_ymd_and_hms(2026, 8, 3, 3, 0, 1).unwrap();
+        let delay = duration_until_next_utc_weekday_from(after_slot, Weekday::Mon, 3);
+        assert_eq!(delay.as_secs(), 7 * 24 * 3600 - 1);
     }
 }

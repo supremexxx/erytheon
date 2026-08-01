@@ -30,9 +30,10 @@ pub use model_candidate::{
     ModelCandidateStatus,
 };
 pub use observability::{
-    ComparisonEntry, DeferredLabelLinkReport, FreshnessThresholds, ScientificSnapshotContext,
-    ScientificSnapshotRow, SnapshotAlertRow, SnapshotCaptureAttemptRow, SystemSnapshotContext,
-    SystemSnapshotRow,
+    ComparisonEntry, DeferredLabelLinkReport, DeferredLabelSummary, FreshnessThresholds,
+    HourlySnapshotSummary, ScientificSnapshotContext, ScientificSnapshotRow,
+    ScientificSnapshotVerification, SnapshotAlertRow, SnapshotCaptureAttemptRow,
+    SystemSnapshotContext, SystemSnapshotRow,
 };
 pub use quality::{
     CombustibilityAssessmentRecord, CombustibleCandidateRecord, CoordinateGroupRecord,

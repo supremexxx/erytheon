@@ -316,6 +316,9 @@ enum Command {
         /// Explicit opt-in to writes; omission is a strict dry run.
         #[arg(long, default_value_t = false)]
         apply: bool,
+        /// Maximum number of mature events examined in this bounded pilot.
+        #[arg(long, default_value_t = 100)]
+        limit: i64,
     },
     /// Phase 4A.5: verifies a published scientific snapshot is complete
     /// and immutable.
@@ -581,7 +584,11 @@ async fn main() -> anyhow::Result<()> {
             snapshot_id,
             mature_before,
             apply,
-        } => snapshot_pipeline::run_label_linking(config, snapshot_id, mature_before, apply).await,
+            limit,
+        } => {
+            snapshot_pipeline::run_label_linking(config, snapshot_id, mature_before, apply, limit)
+                .await
+        }
         Command::SnapshotVerify { id } => {
             snapshot_pipeline::run_verify_snapshot(
                 config,

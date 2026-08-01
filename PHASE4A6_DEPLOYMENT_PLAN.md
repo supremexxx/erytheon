@@ -7,7 +7,7 @@ Ce document est un plan ; cette PR ne déploie rien.
 1. CI verte sur le commit exact de la PR.
 2. Sauvegarde PostgreSQL et répétition de 0022 sur une copie PostGIS.
 3. Relevé du checksum du snapshot scientifique v1 existant ; il doit rester identique après migration.
-4. Injection explicite de `ERYTHEON_ENVIRONMENT`, `ERYTHEON_APPLICATION_REVISION`, `ERYTHEON_APPLICATION_IMAGE` et `ERYTHEON_APPLICATION_IMAGE_DIGEST`.
+4. Injection explicite de `ERYTHEON_ENVIRONMENT`, `ERYTHEON_GIT_REVISION`, `ERYTHEON_IMAGE_REFERENCE` et `ERYTHEON_IMAGE_DIGEST`.
 
 ## Séquence contrôlée
 

@@ -78,12 +78,18 @@ pub async fn run_label_linking(
     snapshot_id: String,
     mature_before: Option<DateTime<Utc>>,
     apply: bool,
+    limit: i64,
 ) -> anyhow::Result<()> {
     let store = Store::connect(&config.database_url)
         .await
         .context("failed to initialize snapshot database")?;
     let report = store
-        .link_mature_snapshot_labels(&snapshot_id, mature_before.unwrap_or_else(Utc::now), !apply)
+        .link_mature_snapshot_labels(
+            &snapshot_id,
+            mature_before.unwrap_or_else(Utc::now),
+            !apply,
+            limit,
+        )
         .await
         .context("failed to evaluate deferred BDIFF links")?;
     println!("{}", serde_json::to_string_pretty(&report)?);
@@ -110,8 +116,13 @@ pub async fn run_operational_snapshot(
         .context("failed to initialize observability database")?;
     let captured_at = options.at.unwrap_or_else(Utc::now);
     let ctx = SystemSnapshotContext {
-        application_revision: std::env::var("ERYTHEON_APPLICATION_REVISION").ok(),
-        application_image: std::env::var("ERYTHEON_APPLICATION_IMAGE").ok(),
+        application_revision: std::env::var("ERYTHEON_GIT_REVISION")
+            .or_else(|_| std::env::var("ERYTHEON_APPLICATION_REVISION"))
+            .ok(),
+        application_image: std::env::var("ERYTHEON_IMAGE_REFERENCE")
+            .or_else(|_| std::env::var("ERYTHEON_APPLICATION_IMAGE"))
+            .ok(),
+        application_image_digest: std::env::var("ERYTHEON_IMAGE_DIGEST").ok(),
         application_restart_count: None,
         caddy_state: std::env::var("ERYTHEON_CADDY_STATE").ok(),
         trigger_kind: Some(
@@ -184,23 +195,18 @@ pub async fn run_verify_snapshot(
     let store = Store::connect(&config.database_url)
         .await
         .context("failed to initialize observability database")?;
-    let snapshot = store
-        .get_scientific_snapshot(&options.id)
+    let report = store
+        .verify_scientific_snapshot(&options.id)
         .await
-        .context("failed to load scientific snapshot")?
-        .ok_or_else(|| anyhow::anyhow!("no scientific snapshot with id {}", options.id))?;
+        .context("failed to verify scientific snapshot")?;
     anyhow::ensure!(
-        snapshot.status == "published",
-        "snapshot {} is not published (status = {})",
+        report.valid,
+        "snapshot {} failed {} verification: {}",
         options.id,
-        snapshot.status
+        report.mode,
+        report.errors.join("; ")
     );
-    anyhow::ensure!(
-        snapshot.complete,
-        "snapshot {} is published but incomplete: missing_count > 0",
-        options.id
-    );
-    println!("{}", serde_json::to_string_pretty(&snapshot)?);
+    println!("{}", serde_json::to_string_pretty(&report)?);
     Ok(())
 }
 

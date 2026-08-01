@@ -1,4 +1,4 @@
-use chrono::{Duration, Utc};
+use chrono::{Duration, Timelike as _, Utc};
 use sqlx::PgPool;
 use store::{FreshnessThresholds, Store, SystemSnapshotContext};
 
@@ -162,6 +162,76 @@ async fn concurrent_hourly_replay_converges_on_one_snapshot() {
     .await
     .expect("attempt sequence");
     assert_eq!(attempts, vec![1, 2]);
+}
+
+#[tokio::test]
+async fn twenty_four_utc_slots_cross_midnight_and_report_a_real_gap() {
+    let Some((store, pool)) = connect().await else {
+        eprintln!("skipping: DATABASE_URL not configured");
+        return;
+    };
+    let environment = "test-hourly-24";
+    sqlx::query("DELETE FROM observability.snapshot_capture_attempts WHERE environment=$1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup attempts");
+    sqlx::query("DELETE FROM observability.system_snapshots WHERE environment=$1")
+        .bind(environment)
+        .execute(&pool)
+        .await
+        .expect("cleanup snapshots");
+    let start = (Utc::now().date_naive() - Duration::days(3))
+        .and_hms_opt(0, 0, 0)
+        .expect("midnight")
+        .and_utc();
+    for hour in 0..24 {
+        let row = store
+            .capture_system_snapshot(
+                environment,
+                "hourly",
+                start + Duration::hours(hour),
+                &SystemSnapshotContext::default(),
+            )
+            .await
+            .expect("hourly capture");
+        assert_eq!(row.capture_window_start.minute(), 0);
+    }
+    let next_day = store
+        .capture_system_snapshot(
+            environment,
+            "hourly",
+            start + Duration::hours(24),
+            &SystemSnapshotContext::default(),
+        )
+        .await
+        .expect("midnight next day");
+    assert_ne!(next_day.capture_date, start.date_naive());
+    sqlx::query(
+        "DELETE FROM observability.snapshot_capture_attempts
+         WHERE environment=$1 AND capture_window_start=$2",
+    )
+    .bind(environment)
+    .bind(start + Duration::hours(12))
+    .execute(&pool)
+    .await
+    .expect("remove attempt");
+    sqlx::query(
+        "DELETE FROM observability.system_snapshots
+         WHERE environment=$1 AND capture_window_start=$2",
+    )
+    .bind(environment)
+    .bind(start + Duration::hours(12))
+    .execute(&pool)
+    .await
+    .expect("create gap");
+    let summary = store
+        .hourly_snapshot_summary(environment)
+        .await
+        .expect("summary");
+    assert_eq!(summary.expected_slots, 25);
+    assert_eq!(summary.present_slots, 24);
+    assert_eq!(summary.missing_slots, 1);
 }
 
 #[tokio::test]

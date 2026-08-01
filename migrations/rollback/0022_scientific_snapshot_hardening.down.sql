@@ -3,6 +3,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM observability.scientific_snapshots WHERE contract_version = 2)
        OR EXISTS (SELECT 1 FROM features.feature_snapshot_values)
        OR EXISTS (SELECT 1 FROM observability.coverage_masks)
+       OR EXISTS (SELECT 1 FROM observability.scientific_snapshot_missing_reasons)
        OR EXISTS (SELECT 1 FROM observability.snapshot_capture_attempts)
        OR EXISTS (SELECT 1 FROM ml.snapshot_label_links
                   WHERE maturity_status <> 'provisional' OR supersedes_link_id IS NOT NULL) THEN
@@ -28,6 +29,8 @@ ALTER TABLE observability.scientific_snapshots
     DROP CONSTRAINT IF EXISTS scientific_snapshots_v2_counts_check,
     DROP CONSTRAINT IF EXISTS scientific_snapshots_traceability_status_check,
     DROP CONSTRAINT IF EXISTS scientific_snapshots_contract_version_check,
+    DROP CONSTRAINT IF EXISTS scientific_snapshots_completeness_status_check,
+    DROP COLUMN IF EXISTS completeness_status,
     DROP COLUMN IF EXISTS unexpected_missing_count,
     DROP COLUMN IF EXISTS structural_exclusion_count,
     DROP COLUMN IF EXISTS modelable_cell_count,
@@ -41,6 +44,7 @@ ALTER TABLE observability.scientific_snapshots
     DROP COLUMN IF EXISTS traceability_status,
     DROP COLUMN IF EXISTS contract_version;
 
+DROP TABLE IF EXISTS observability.scientific_snapshot_missing_reasons;
 DROP TRIGGER IF EXISTS coverage_masks_published_immutable ON observability.coverage_masks;
 DROP FUNCTION IF EXISTS observability.forbid_published_coverage_mask_change();
 DROP TRIGGER IF EXISTS coverage_mask_cells_frozen ON observability.coverage_mask_cells;
@@ -61,6 +65,7 @@ ALTER TABLE observability.system_snapshots
     DROP CONSTRAINT IF EXISTS system_snapshots_provenance_status_check,
     DROP CONSTRAINT IF EXISTS system_snapshots_window_order_check,
     DROP COLUMN IF EXISTS provenance_status,
+    DROP COLUMN IF EXISTS application_image_digest,
     DROP COLUMN IF EXISTS capture_window_end,
     DROP COLUMN IF EXISTS capture_window_start,
     ADD CONSTRAINT system_snapshots_identity_unique UNIQUE (environment, capture_date, cadence);

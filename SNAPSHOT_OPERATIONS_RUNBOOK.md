@@ -93,9 +93,9 @@ Avant une capture scientifique v2, fournir explicitement :
 
 ```text
 ERYTHEON_ENVIRONMENT
-ERYTHEON_APPLICATION_REVISION
-ERYTHEON_APPLICATION_IMAGE
-ERYTHEON_APPLICATION_IMAGE_DIGEST
+ERYTHEON_GIT_REVISION
+ERYTHEON_IMAGE_REFERENCE
+ERYTHEON_IMAGE_DIGEST
 ```
 
 Une valeur absente bloque la capture avant publication. Les captures opérationnelles restent

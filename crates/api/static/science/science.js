@@ -921,7 +921,7 @@
     },
 
     async observability() {
-      const [overview, sources, latest, history, compare, snapshots, alerts, attempts] = await Promise.all([
+      const [overview, sources, latest, history, compare, snapshots, alerts, attempts, hourlySummary, labelSummary] = await Promise.all([
         fetchJSON("/api/science/overview"),
         fetchJSON("/api/science/sources"),
         fetchJSON("/api/science/observability/latest").catch(() => null),
@@ -930,6 +930,8 @@
         fetchJSON("/api/science/snapshots?limit=20").catch(() => []),
         fetchJSON("/api/science/snapshot-alerts?limit=20").catch(() => []),
         fetchJSON("/api/science/observability/attempts?days=30").catch(() => []),
+        fetchJSON("/api/science/observability/hourly-summary").catch(() => ({ present_slots: 0, expected_slots: 0, missing_slots: 0, failed_attempts: 0 })),
+        fetchJSON("/api/science/snapshot-labels/summary").catch(() => ({ total: 0, human_known: 0, natural_known: 0, unknown_or_indeterminate: 0, mature: 0, provisional: 0 })),
       ]);
       updateShellContext(overview, sources);
 
@@ -960,7 +962,7 @@
           { label: "Modèles actifs", value: fmtNum(latest.active_model_count), detail: "1 attendu" },
           { label: "Candidat", value: latest.candidate_status ?? "—", detail: "jamais actif" },
           { label: "Erreurs (24 h)", value: fmtNum(latest.error_count_24h), detail: `${fmtNum(latest.warning_count_24h)} avertissements` },
-          { label: "Snapshots scientifiques", value: fmtNum(snapshots.length), detail: "manifestes publiés" },
+          { label: "Créneaux horaires", value: `${fmtNum(hourlySummary.present_slots)} / ${fmtNum(hourlySummary.expected_slots)}`, detail: `${fmtNum(hourlySummary.missing_slots)} manquants` },
         ])}
         <div class="sci-page-grid">
           <section class="sci-panel sci-span-6">
@@ -988,13 +990,14 @@
           <section class="sci-panel sci-span-7">
             ${panelHeader("Snapshots scientifiques", "Contrat v2 : bundle statique, provenance et couverture obligatoires. Les captures v1 restent signalées legacy.", `${fmtNum(snapshots.length)} manifestes`)}
             ${table(
-              ["Date", "Contrat", "Cellules", "Modélisable", "Manquants inattendus", "Traçabilité", "Statut"],
+              ["Date", "Contrat", "Cellules", "Modélisable", "Exclusions", "Manquants inattendus", "Provenance", "Complétude", "Statut"],
               snapshots,
               (snap) => `<tr>
                 <td>${fmtShortDate(snap.valid_at)}</td><td>v${fmtNum(snap.contract_version)}</td>
                 <td>${fmtNum(snap.cell_count_present)} / ${fmtNum(snap.cell_count_expected)}</td>
-                <td>${fmtNum(snap.modelable_cell_count)}</td><td>${fmtNum(snap.unexpected_missing_count)}</td>
-                <td>${status(snap.traceability_status, snap.traceability_status === "complete" ? "ok" : "warning")}</td>
+                <td>${fmtNum(snap.modelable_cell_count)}</td><td>${fmtNum(snap.structural_exclusion_count)}</td><td>${fmtNum(snap.unexpected_missing_count)}</td>
+                <td title="révision ${escapeHtml(snap.application_revision ?? "Non disponible")} · batch ${escapeHtml(snap.forecast_batch_computed_at ?? "Non disponible")}">${snap.traceability_status === "complete" ? status("Complète", "ok") : status("Legacy · incomplète", "warning")}</td>
+                <td>${status(snap.completeness_status, snap.completeness_status === "complete" ? "ok" : "warning")}</td>
                 <td>${status(snap.status)}</td>
               </tr>`,
               "Snapshots scientifiques",
@@ -1010,6 +1013,16 @@
               true,
             )}
           </section>
+          <aside class="sci-panel sci-span-5">
+            ${panelHeader("Labels différés BDIFF", "Liens versionnés ; aucune absence ou observation FIRMS n'est transformée en label.")}
+            ${labelSummary.total ? `<ul class="sci-health-list">
+              <li><span>Total courant</span><strong>${fmtNum(labelSummary.total)}</strong></li>
+              <li><span>Humains connus</span><strong>${fmtNum(labelSummary.human_known)}</strong></li>
+              <li><span>Naturels connus</span><strong>${fmtNum(labelSummary.natural_known)}</strong></li>
+              <li><span>Inconnus / indéterminés exclus</span><strong>${fmtNum(labelSummary.unknown_or_indeterminate)}</strong></li>
+              <li><span>Matures / provisoires</span><strong>${fmtNum(labelSummary.mature)} / ${fmtNum(labelSummary.provisional)}</strong></li>
+            </ul>` : emptyState("Aucun label différé relié", "Le linker reste en dry-run jusqu'à validation explicite.")}
+          </aside>
           <aside class="sci-panel sci-span-5">
             ${panelHeader("Alertes", "Règles versionnées ; enregistrement et affichage seulement.", `${fmtNum(alerts.length)} alertes`)}
             ${table(
