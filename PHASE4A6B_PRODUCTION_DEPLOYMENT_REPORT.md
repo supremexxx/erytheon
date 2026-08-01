@@ -7,6 +7,7 @@
 - The difference from `14b18ef` was one validation-report correction at `5425ac7`, followed by the production provenance wiring at `d693b9b`.
 - Both push and pull-request CI checks passed on the exact reviewed HEAD.
 - The final `main` CI passed on `abcd46c918d5e9f461e5fa8903237abdab0d8382` (GitHub Actions run `30708636211`).
+- The documentation PR later exposed a time-dependent test defect near the end of an hour: the concurrent replay test used `Utc::now()` and added five minutes, which sometimes selected two different hourly windows. The test fixture was anchored to the exact UTC hour; production capture logic was not changed.
 
 ## 2. Merge
 

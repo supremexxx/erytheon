@@ -140,7 +140,11 @@ async fn concurrent_hourly_replay_converges_on_one_snapshot() {
         .execute(&pool)
         .await
         .expect("cleanup snapshots");
-    let at = Utc::now() - Duration::hours(6);
+    let at = (Utc::now() - Duration::hours(6))
+        .with_minute(0)
+        .and_then(|value| value.with_second(0))
+        .and_then(|value| value.with_nanosecond(0))
+        .expect("exact UTC hour");
     let left_store = store.clone();
     let right_store = store.clone();
     let left_context = SystemSnapshotContext::default();
