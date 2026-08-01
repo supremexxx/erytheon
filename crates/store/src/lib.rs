@@ -30,8 +30,9 @@ pub use model_candidate::{
     ModelCandidateStatus,
 };
 pub use observability::{
-    ComparisonEntry, FreshnessThresholds, ScientificSnapshotRow, SnapshotAlertRow,
-    SystemSnapshotContext, SystemSnapshotRow,
+    ComparisonEntry, DeferredLabelLinkReport, FreshnessThresholds, ScientificSnapshotContext,
+    ScientificSnapshotRow, SnapshotAlertRow, SnapshotCaptureAttemptRow, SystemSnapshotContext,
+    SystemSnapshotRow,
 };
 pub use quality::{
     CombustibilityAssessmentRecord, CombustibleCandidateRecord, CoordinateGroupRecord,
@@ -1569,6 +1570,9 @@ pub enum StoreError {
     /// A persisted count was unexpectedly negative.
     #[error("invalid persisted non-negative count: {0}")]
     InvalidPersistedCount(i64),
+    /// A hardened snapshot omitted a mandatory identity or provenance input.
+    #[error("snapshot contract violation: {0}")]
+    SnapshotContract(String),
     /// A stored H3 resolution did not fit the supported range.
     #[error("invalid persisted H3 resolution: {0}")]
     InvalidH3Resolution(i16),

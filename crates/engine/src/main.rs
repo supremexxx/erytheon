@@ -302,6 +302,21 @@ enum Command {
         #[arg(long)]
         date: NaiveDate,
     },
+    /// Phase 4A.6: materializes and activates the immutable static input bundle.
+    SnapshotStaticBundle,
+    /// Phase 4A.6: publishes the configured territory as the modelable denominator.
+    SnapshotCoverageMask,
+    /// Phase 4A.6: previews or applies mature BDIFF links. Dry-run by default.
+    SnapshotLinkLabels {
+        #[arg(long)]
+        snapshot_id: String,
+        /// Only BDIFF events whose last update is at or before this instant are mature.
+        #[arg(long)]
+        mature_before: Option<DateTime<Utc>>,
+        /// Explicit opt-in to writes; omission is a strict dry run.
+        #[arg(long, default_value_t = false)]
+        apply: bool,
+    },
     /// Phase 4A.5: verifies a published scientific snapshot is complete
     /// and immutable.
     SnapshotVerify {
@@ -560,6 +575,13 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
+        Command::SnapshotStaticBundle => snapshot_pipeline::run_static_bundle(config).await,
+        Command::SnapshotCoverageMask => snapshot_pipeline::run_coverage_mask(config).await,
+        Command::SnapshotLinkLabels {
+            snapshot_id,
+            mature_before,
+            apply,
+        } => snapshot_pipeline::run_label_linking(config, snapshot_id, mature_before, apply).await,
         Command::SnapshotVerify { id } => {
             snapshot_pipeline::run_verify_snapshot(
                 config,

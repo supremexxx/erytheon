@@ -37,6 +37,7 @@ pub fn router() -> Router<AppState> {
         .route("/observability/latest", get(observability_latest))
         .route("/observability/history", get(observability_history))
         .route("/observability/compare", get(observability_compare))
+        .route("/observability/attempts", get(observability_attempts))
         .route("/snapshots", get(snapshots))
         .route("/snapshots/{id}", get(snapshot_detail))
         .route("/snapshot-alerts", get(snapshot_alerts))
@@ -93,6 +94,21 @@ async fn observability_history(
         state
             .store()
             .system_snapshot_history(environment, cadence, days)
+            .await
+            .map_err(database_error)?,
+    ))
+}
+
+async fn observability_attempts(
+    State(state): State<AppState>,
+    Query(query): Query<ObservabilityHistoryQuery>,
+) -> Result<Json<Vec<store::SnapshotCaptureAttemptRow>>, ApiError> {
+    let environment = query.environment.as_deref().unwrap_or(DEFAULT_ENVIRONMENT);
+    let limit = query.days.unwrap_or(50).clamp(1, 200);
+    Ok(Json(
+        state
+            .store()
+            .list_snapshot_capture_attempts(environment, limit)
             .await
             .map_err(database_error)?,
     ))

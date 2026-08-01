@@ -542,12 +542,136 @@ impl Store {
     /// Returns an error if `PostgreSQL` rejects the read.
     pub async fn cell_static_snapshot_summary(&self) -> Result<(String, i64), StoreError> {
         let row = sqlx::query_as::<_, (Option<String>, i64)>(
-            "SELECT md5(string_agg(h3::text || ':' || features::text, ',' ORDER BY h3)), COUNT(*)
+            "SELECT encode(digest(string_agg(h3::text || ':' || features::text, ',' ORDER BY h3), 'sha256'), 'hex'), COUNT(*)
              FROM public.cell_static",
         )
         .fetch_one(&self.pool)
         .await?;
         Ok((row.0.unwrap_or_default(), row.1))
+    }
+
+    /// Materializes and activates an immutable copy of the current
+    /// `cell_static` inputs. The checksum is SHA-256 over canonical H3
+    /// ordering and is re-verified against the copied rows before activation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the source is empty, copying drifts, or a
+    /// database invariant rejects publication.
+    #[allow(clippy::too_many_lines)]
+    pub async fn build_cell_static_bundle(
+        &self,
+        h3_resolution: i16,
+        code_version: &str,
+    ) -> Result<String, StoreError> {
+        let (checksum, cell_count) = self.cell_static_snapshot_summary().await?;
+        if cell_count == 0 || checksum.is_empty() {
+            return Err(StoreError::InvalidPersistedCount(cell_count));
+        }
+
+        let mut transaction = self.pool.begin().await?;
+        let inserted_snapshot_id: Option<String> = sqlx::query_scalar(
+            "INSERT INTO features.feature_snapshots (
+                family, source, provider, vintage, available_from, retrieved_at,
+                code_version, normalizer_version, parameters, source_checksum,
+                logical_checksum, reference_table, cell_count, h3_resolution,
+                geographic_coverage, status, temporal_classification, limitations, notes
+             ) VALUES (
+                'cell_static_bundle', 'public.cell_static', 'ERYTHEON',
+                to_char(NOW() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),
+                NOW(), NOW(), $1, 'cell-static-json-v1',
+                jsonb_build_object('contract_version',2,'ordering','h3_asc','hash','sha256'),
+                $2, $2, 'features.feature_snapshot_values', $3, $4,
+                jsonb_build_object('kind','full_static_registry'), 'draft',
+                'current_snapshot_applied_historically',
+                jsonb_build_array('school_zone currently carries the documented C placeholder'),
+                'Immutable materialized Phase 4A.6 static bundle'
+             ) ON CONFLICT (family, logical_checksum) DO NOTHING
+             RETURNING id::text",
+        )
+        .bind(code_version)
+        .bind(&checksum)
+        .bind(cell_count)
+        .bind(h3_resolution)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let snapshot_id = match inserted_snapshot_id {
+            Some(id) => id,
+            None => {
+                sqlx::query_scalar(
+                    "SELECT id::text FROM features.feature_snapshots
+                 WHERE family='cell_static_bundle' AND logical_checksum=$1",
+                )
+                .bind(&checksum)
+                .fetch_one(&mut *transaction)
+                .await?
+            }
+        };
+
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM features.feature_snapshots WHERE id=$1::uuid")
+                .bind(&snapshot_id)
+                .fetch_one(&mut *transaction)
+                .await?;
+        if status == "active" {
+            transaction.commit().await?;
+            return Ok(snapshot_id);
+        }
+
+        if status == "draft" {
+            sqlx::query(
+                "INSERT INTO features.feature_snapshot_values (snapshot_id,h3,features)
+                 SELECT $1::uuid,h3,features FROM public.cell_static
+                 ON CONFLICT (snapshot_id,h3) DO NOTHING",
+            )
+            .bind(&snapshot_id)
+            .execute(&mut *transaction)
+            .await?;
+        }
+        let copied: (Option<String>, i64) = sqlx::query_as(
+            "SELECT encode(digest(string_agg(h3::text || ':' || features::text, ',' ORDER BY h3), 'sha256'), 'hex'), COUNT(*)
+             FROM features.feature_snapshot_values WHERE snapshot_id=$1::uuid",
+        )
+        .bind(&snapshot_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if copied.1 != cell_count || copied.0.as_deref() != Some(checksum.as_str()) {
+            return Err(StoreError::InvalidPersistedCount(copied.1));
+        }
+
+        sqlx::query(
+            "UPDATE features.feature_snapshot_activations SET deactivated_at=NOW()
+             WHERE family='cell_static_bundle' AND h3_resolution=$1 AND deactivated_at IS NULL",
+        )
+        .bind(h3_resolution)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE features.feature_snapshots SET status='superseded'
+             WHERE family='cell_static_bundle' AND status='active' AND id<>$1::uuid",
+        )
+        .bind(&snapshot_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE features.feature_snapshots
+             SET status='active', validated_at=COALESCE(validated_at,NOW()) WHERE id=$1::uuid",
+        )
+        .bind(&snapshot_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO features.feature_snapshot_activations
+                (family,h3_resolution,snapshot_id,activation_revision)
+             VALUES ('cell_static_bundle',$1,$2::uuid,$3)",
+        )
+        .bind(h3_resolution)
+        .bind(&snapshot_id)
+        .bind(code_version)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(snapshot_id)
     }
 
     /// Looks up an existing calendar rule version's id by `logical_id`,

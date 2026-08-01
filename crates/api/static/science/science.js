@@ -921,7 +921,7 @@
     },
 
     async observability() {
-      const [overview, sources, latest, history, compare, snapshots, alerts] = await Promise.all([
+      const [overview, sources, latest, history, compare, snapshots, alerts, attempts] = await Promise.all([
         fetchJSON("/api/science/overview"),
         fetchJSON("/api/science/sources"),
         fetchJSON("/api/science/observability/latest").catch(() => null),
@@ -929,6 +929,7 @@
         fetchJSON("/api/science/observability/compare?days=1,7").catch(() => []),
         fetchJSON("/api/science/snapshots?limit=20").catch(() => []),
         fetchJSON("/api/science/snapshot-alerts?limit=20").catch(() => []),
+        fetchJSON("/api/science/observability/attempts?days=30").catch(() => []),
       ]);
       updateShellContext(overview, sources);
 
@@ -952,7 +953,7 @@
       ));
 
       return `
-        ${pageHeader("Observabilité", "Snapshots automatisés", "Mémoire opérationnelle et scientifique du système, phase 4A.5. Lecture seule ; aucun entraînement, scoring ou activation.", `${fmtNum(history.length)} captures (30 j)`)}
+        ${pageHeader("Observabilité", "Snapshots automatisés", "Mémoire temporelle durcie, phase 4A.6. Lecture seule ; aucun entraînement, scoring ou activation.", `${fmtNum(history.length)} fenêtres (30 j)`)}
         ${metricStrip([
           { label: "Fraîcheur forecast", value: latest.forecast_age_seconds === null ? "—" : fmtAge(latest.forecast_last_complete_at), status: latest.forecast_age_seconds === null ? "Indisponible" : "Mesurée", tone: latest.forecast_age_seconds === null ? "danger" : "ok" },
           { label: "Fraîcheur FIRMS", value: latest.firms_age_seconds === null ? "—" : fmtAge(latest.firms_last_success_at), status: latest.firms_age_seconds === null ? "Indisponible" : "Mesurée", tone: latest.firms_age_seconds === null ? "danger" : "ok" },
@@ -963,7 +964,7 @@
         ])}
         <div class="sci-page-grid">
           <section class="sci-panel sci-span-6">
-            ${panelHeader("Aujourd'hui", `Capturé le ${fmtDate(latest.captured_at)} · empreinte ${latest.checksum.slice(0, 12)}…`)}
+            ${panelHeader("Dernière fenêtre", `${fmtDate(latest.capture_window_start)} → ${fmtDate(latest.capture_window_end)} · empreinte ${latest.checksum.slice(0, 12)}…`)}
             <ul class="sci-health-list">
               <li><span>${def("checksum", "Fraîcheur forecast")}</span>${freshnessRow("forecast", latest.forecast_age_seconds)}</li>
               <li><span>Fraîcheur FIRMS</span>${freshnessRow("FIRMS", latest.firms_age_seconds)}</li>
@@ -985,18 +986,28 @@
             )}
           </section>
           <section class="sci-panel sci-span-7">
-            ${panelHeader("Snapshots scientifiques", "Pilote hebdomadaire, horizon nowcast uniquement — voir PHASE4A5_SNAPSHOT_ARCHITECTURE_DECISION.md.", `${fmtNum(snapshots.length)} manifestes`)}
+            ${panelHeader("Snapshots scientifiques", "Contrat v2 : bundle statique, provenance et couverture obligatoires. Les captures v1 restent signalées legacy.", `${fmtNum(snapshots.length)} manifestes`)}
             ${table(
-              ["Date", "Type", "Cellules", "Couverture", "Statut", "Empreinte", "Bundle statique"],
+              ["Date", "Contrat", "Cellules", "Modélisable", "Manquants inattendus", "Traçabilité", "Statut"],
               snapshots,
               (snap) => `<tr>
-                <td>${fmtShortDate(snap.valid_at)}</td><td>${escapeHtml(snap.snapshot_type)}</td>
+                <td>${fmtShortDate(snap.valid_at)}</td><td>v${fmtNum(snap.contract_version)}</td>
                 <td>${fmtNum(snap.cell_count_present)} / ${fmtNum(snap.cell_count_expected)}</td>
-                <td>${snap.cell_count_expected ? fmtPct(snap.cell_count_present / snap.cell_count_expected) : "—"}</td>
-                <td>${status(snap.status)}</td><td class="sci-mono">${escapeHtml((snap.checksum ?? "").slice(0, 10) || "—")}</td>
-                <td>${snap.static_snapshot_id ? "référencé" : "aucun"}</td>
+                <td>${fmtNum(snap.modelable_cell_count)}</td><td>${fmtNum(snap.unexpected_missing_count)}</td>
+                <td>${status(snap.traceability_status, snap.traceability_status === "complete" ? "ok" : "warning")}</td>
+                <td>${status(snap.status)}</td>
               </tr>`,
               "Snapshots scientifiques",
+            )}
+          </section>
+          <section class="sci-panel sci-span-7">
+            ${panelHeader("Tentatives de capture", "Chaque exécution est conservée, y compris les replays et échecs.", `${fmtNum(attempts.length)} tentatives`)}
+            ${table(
+              ["Début", "Cadence", "Fenêtre", "Tentative", "Origine", "Statut"],
+              attempts,
+              (attempt) => `<tr><td>${fmtDate(attempt.started_at)}</td><td>${escapeHtml(attempt.cadence)}</td><td>${fmtDate(attempt.capture_window_start)}</td><td>${fmtNum(attempt.attempt_number)}</td><td>${escapeHtml(attempt.trigger_kind)}</td><td>${status(attempt.status, attempt.status === "failed" ? "danger" : "ok")}</td></tr>`,
+              "Tentatives de capture",
+              true,
             )}
           </section>
           <aside class="sci-panel sci-span-5">

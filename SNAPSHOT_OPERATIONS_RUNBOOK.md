@@ -1,4 +1,4 @@
-# Runbook — Snapshots d'observabilité (Phase 4A.5)
+# Runbook — Snapshots d'observabilité (Phase 4A.6)
 
 ## 1. Cadence automatique
 
@@ -18,6 +18,10 @@ principale** — la boucle continue au tick suivant.
 # Capture opérationnelle immédiate
 erytheon snapshot-operational --cadence daily
 
+# Pré-requis scientifiques v2, dans cet ordre
+erytheon snapshot-static-bundle
+erytheon snapshot-coverage-mask
+
 # Capture scientifique pilote pour une date donnée (idempotent)
 erytheon snapshot-scientific --date 2026-07-30
 
@@ -29,6 +33,12 @@ erytheon snapshot-compare --days 1,7
 
 # Rapport de rétention (dry-run uniquement)
 erytheon snapshot-retention
+
+# Prévisualiser les liens BDIFF matures (aucune écriture par défaut)
+erytheon snapshot-link-labels --snapshot-id <uuid>
+
+# Écriture explicite seulement après revue du dry-run
+erytheon snapshot-link-labels --snapshot-id <uuid> --apply
 ```
 
 ## 3. Diagnostic d'une alerte critique
@@ -58,22 +68,40 @@ Si un job de snapshot échoue de façon répétée :
    snapshot — les deux systèmes sont indépendants (le scheduler lance ces jobs comme des tâches
    `tokio::spawn` distinctes de `poll_firms`/`poll_forecast`).
 
-## 5. Rollback d'une migration 4A.5
+## 5. Rollback des migrations 4A.5–4A.6
 
 Ordre strict, chaque script refuse s'il existe des données ou si l'ordre est violé :
 
 ```text
+0022_scientific_snapshot_hardening.down.sql
 0021_snapshot_label_links.down.sql
 0020_snapshot_alerts.down.sql
 0019_scientific_snapshot_registry.down.sql
 0018_observability_foundation.down.sql
 ```
 
+Le rollback 0022 refuse dès qu'une tentative, un bundle, un masque ou un manifeste v2 existe.
+Après ce point, conserver les données et effectuer un retour applicatif plutôt qu'un effacement.
+
 Ne jamais exécuter avec `psql -f` sans transaction explicite — chaque script contient déjà son
 propre `BEGIN`/`COMMIT` ; ne pas les envelopper dans une transaction supplémentaire qui masquerait
 un refus partiel.
 
-## 6. Ce que ce système ne fait jamais
+## 6. Provenance requise
+
+Avant une capture scientifique v2, fournir explicitement :
+
+```text
+ERYTHEON_ENVIRONMENT
+ERYTHEON_APPLICATION_REVISION
+ERYTHEON_APPLICATION_IMAGE
+ERYTHEON_APPLICATION_IMAGE_DIGEST
+```
+
+Une valeur absente bloque la capture avant publication. Les captures opérationnelles restent
+possibles et enregistrent la provenance disponible ainsi que chaque tentative.
+
+## 7. Ce que ce système ne fait jamais
 
 - N'entraîne, ne score, ni n'active aucun modèle.
 - Ne modifie jamais `/risk`, le moteur de risque, FWI, ou les seuils métier.

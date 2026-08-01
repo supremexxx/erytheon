@@ -232,6 +232,7 @@ async fn capture_operational_snapshot(store: &Store, cadence: &str) {
         application_image: std::env::var("ERYTHEON_APPLICATION_IMAGE").ok(),
         application_restart_count: None,
         caddy_state: std::env::var("ERYTHEON_CADDY_STATE").ok(),
+        trigger_kind: Some("scheduler".to_owned()),
     };
     match store
         .capture_system_snapshot(SNAPSHOT_ENVIRONMENT, cadence, Utc::now(), &ctx)
