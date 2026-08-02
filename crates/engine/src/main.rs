@@ -883,13 +883,16 @@ async fn forecast(config: Config) -> anyhow::Result<()> {
     };
     match result {
         Ok(summary) => {
+            if let Some(primary_error) = &summary.primary_error {
+                store
+                    .record_source_error("open_meteo_arome", primary_error)
+                    .await?;
+            }
             store
-                .record_source_success(
-                    ingest::open_meteo::OpenMeteoForecastSource::ID,
-                    summary.anchors,
-                )
+                .record_source_success(summary.source_id, summary.anchors)
                 .await?;
             tracing::info!(
+                source = summary.source_id,
                 computed_at = %summary.computed_at,
                 base_valid_at = %summary.base_valid_at,
                 anchors = summary.anchors,
@@ -902,10 +905,7 @@ async fn forecast(config: Config) -> anyhow::Result<()> {
         }
         Err(error) => {
             store
-                .record_source_error(
-                    ingest::open_meteo::OpenMeteoForecastSource::ID,
-                    &error.to_string(),
-                )
+                .record_source_error("weather_forecast", &error.to_string())
                 .await?;
             Err(error)
         }
