@@ -5,13 +5,44 @@ use grid::LatLng;
 use reqwest::{StatusCode, header::RETRY_AFTER};
 use serde::Deserialize;
 
-const API_URL: &str = "https://api.open-meteo.com/v1/meteofrance";
 const HOURLY_VARIABLES: &str = "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m";
-const MODEL: &str = "meteofrance_seamless";
 const PAST_HOURS: &str = "24";
 const FORECAST_HOURS: &str = "49";
-const RATE_LIMIT_RETRIES: usize = 3;
-const RATE_LIMIT_DELAY: Duration = Duration::from_secs(65);
+const RATE_LIMIT_RETRIES: usize = 1;
+const RATE_LIMIT_DELAY: Duration = Duration::from_secs(5);
+
+/// Operational weather models available through the normalized forecast API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForecastModel {
+    /// Météo-France AROME/ARPEGE seamless forecast.
+    MeteoFrance,
+    /// ECMWF IFS 0.25° forecast used as an independent fallback model.
+    Ecmwf,
+}
+
+impl ForecastModel {
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::MeteoFrance => "open_meteo_arome",
+            Self::Ecmwf => "open_meteo_ecmwf_ifs025",
+        }
+    }
+
+    const fn api_url(self) -> &'static str {
+        match self {
+            Self::MeteoFrance => "https://api.open-meteo.com/v1/meteofrance",
+            Self::Ecmwf => "https://api.open-meteo.com/v1/forecast",
+        }
+    }
+
+    const fn model(self) -> &'static str {
+        match self {
+            Self::MeteoFrance => "meteofrance_seamless",
+            Self::Ecmwf => "ecmwf_ifs025",
+        }
+    }
+}
 
 /// One AROME/ARPEGE weather value valid at an exact UTC hour.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -41,12 +72,22 @@ impl ForecastLocation {
     }
 }
 
-/// Client for Open-Meteo's Météo-France AROME/ARPEGE endpoint.
-#[derive(Clone, Debug, Default)]
-pub struct OpenMeteoForecastSource;
+/// Client for a weather model exposed through Open-Meteo's normalized API.
+#[derive(Clone, Copy, Debug)]
+pub struct OpenMeteoForecastSource {
+    model: ForecastModel,
+}
 
 impl OpenMeteoForecastSource {
-    pub const ID: &'static str = "open_meteo_arome";
+    #[must_use]
+    pub const fn new(model: ForecastModel) -> Self {
+        Self { model }
+    }
+
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        self.model.id()
+    }
 
     /// Fetches 24 past hours and 49 forecast hours for all anchors in one request.
     ///
@@ -74,12 +115,12 @@ impl OpenMeteoForecastSource {
         let mut retry_count = 0;
         let response = loop {
             let response = client
-                .get(API_URL)
+                .get(self.model.api_url())
                 .query(&[
                     ("latitude", latitudes.as_str()),
                     ("longitude", longitudes.as_str()),
                     ("hourly", HOURLY_VARIABLES),
-                    ("models", MODEL),
+                    ("models", self.model.model()),
                     ("past_hours", PAST_HOURS),
                     ("forecast_hours", FORECAST_HOURS),
                     ("timezone", "UTC"),
@@ -107,7 +148,8 @@ impl OpenMeteoForecastSource {
                 retry_count,
                 delay_seconds = delay.as_secs(),
                 locations = locations.len(),
-                "Open-Meteo rate limit reached; retrying"
+                source = self.id(),
+                "weather source rate limit reached; retrying"
             );
             tokio::time::sleep(delay).await;
         }
@@ -260,7 +302,17 @@ pub enum OpenMeteoError {
 mod tests {
     use chrono::{TimeZone as _, Utc};
 
-    use super::parse_response;
+    use super::{ForecastModel, OpenMeteoForecastSource, parse_response};
+
+    #[test]
+    fn weather_models_have_distinct_provenance_ids() {
+        let meteo_france = OpenMeteoForecastSource::new(ForecastModel::MeteoFrance);
+        let ecmwf = OpenMeteoForecastSource::new(ForecastModel::Ecmwf);
+
+        assert_eq!(meteo_france.id(), "open_meteo_arome");
+        assert_eq!(ecmwf.id(), "open_meteo_ecmwf_ifs025");
+        assert_ne!(meteo_france.id(), ecmwf.id());
+    }
 
     #[test]
     fn parses_hourly_forecast_and_accumulates_precipitation() {

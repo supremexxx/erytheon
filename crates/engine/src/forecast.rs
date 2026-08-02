@@ -6,7 +6,9 @@ use fwi::{
     FwiOutput, FwiState, Weather, calculate_daily, fire_weather_index, initial_spread_index,
 };
 use grid::{BoundingBox, CellIndex, H3Grid, LatLng};
-use ingest::open_meteo::{ForecastLocation, ForecastSample, OpenMeteoForecastSource};
+use ingest::open_meteo::{
+    ForecastLocation, ForecastModel, ForecastSample, OpenMeteoError, OpenMeteoForecastSource,
+};
 use risk::{CellFeatures, Horizon, IgnitionModel, RiskScore};
 use serde::Deserialize;
 use store::{ForecastFwiRow, FwiStateRow, Store};
@@ -16,7 +18,7 @@ const ANCHOR_STEP_DEGREES: f64 = 0.20;
 const NEAREST_ANCHOR_COUNT: usize = 4;
 const EXACT_ANCHOR_DISTANCE_KM: f64 = 1.0e-9;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ForecastSummary {
     pub computed_at: DateTime<Utc>,
     pub base_valid_at: DateTime<Utc>,
@@ -24,6 +26,8 @@ pub struct ForecastSummary {
     pub cells: usize,
     pub scores_upserted: u64,
     pub elapsed_seconds: f64,
+    pub source_id: &'static str,
+    pub primary_error: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -71,6 +75,48 @@ pub async fn recompute_forecast_regions(
     idw_power: f64,
     updates: Option<&broadcast::Sender<Arc<api::RiskUpdate>>>,
 ) -> anyhow::Result<ForecastSummary> {
+    let primary = OpenMeteoForecastSource::new(ForecastModel::MeteoFrance);
+    match recompute_forecast_regions_from_source(
+        store, model, grid, regions, idw_power, updates, primary,
+    )
+    .await
+    {
+        Ok(summary) => Ok(summary),
+        Err(primary_error) if is_weather_source_error(&primary_error) => {
+            let fallback = OpenMeteoForecastSource::new(ForecastModel::Ecmwf);
+            tracing::warn!(
+                primary = primary.id(),
+                fallback = fallback.id(),
+                error = %primary_error,
+                "primary weather model failed; retrying the atomic batch with fallback"
+            );
+            let mut summary = recompute_forecast_regions_from_source(
+                store, model, grid, regions, idw_power, updates, fallback,
+            )
+            .await
+            .context("ECMWF fallback forecast failed")?;
+            summary.primary_error = Some(primary_error.to_string());
+            Ok(summary)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn is_weather_source_error(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<OpenMeteoError>().is_some())
+}
+
+async fn recompute_forecast_regions_from_source(
+    store: &Store,
+    model: &impl IgnitionModel,
+    grid: H3Grid,
+    regions: &[ForecastRegion<'_>],
+    idw_power: f64,
+    updates: Option<&broadcast::Sender<Arc<api::RiskUpdate>>>,
+    source: OpenMeteoForecastSource,
+) -> anyhow::Result<ForecastSummary> {
     anyhow::ensure!(!regions.is_empty(), "forecast region list is empty");
     let started = Instant::now();
     let computed_at = Utc::now();
@@ -99,6 +145,7 @@ pub async fn recompute_forecast_regions(
             computed_at,
             base_valid_at,
             updates,
+            source,
         )
         .await;
         let summary = match summary {
@@ -137,6 +184,8 @@ pub async fn recompute_forecast_regions(
         cells,
         scores_upserted,
         elapsed_seconds: started.elapsed().as_secs_f64(),
+        source_id: source.id(),
+        primary_error: None,
     })
 }
 
@@ -162,13 +211,13 @@ async fn recompute_forecast_partition(
     computed_at: DateTime<Utc>,
     expected_base_valid_at: Option<DateTime<Utc>>,
     updates: Option<&broadcast::Sender<Arc<api::RiskUpdate>>>,
+    source: OpenMeteoForecastSource,
 ) -> anyhow::Result<PartitionSummary> {
     let anchors = anchor_grid(region.bbox)?;
-    let source = OpenMeteoForecastSource;
     let forecasts = source
         .fetch(client, &anchors)
         .await
-        .context("failed to fetch AROME/ARPEGE forecast")?;
+        .with_context(|| format!("failed to fetch weather forecast from {}", source.id()))?;
     let base_valid_at =
         expected_base_valid_at.map_or_else(|| latest_available_hour(&forecasts, Utc::now()), Ok)?;
     let valid_times = Horizon::ALL.map(|horizon| base_valid_at + Duration::hours(horizon.hours()));

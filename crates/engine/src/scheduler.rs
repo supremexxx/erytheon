@@ -3,7 +3,11 @@ use std::time::Duration;
 
 use chrono::{Datelike, Duration as ChronoDuration, Utc, Weekday};
 use grid::H3Grid;
-use ingest::{Cadence, FetchCtx, Source, firms::FirmsSource, open_meteo::OpenMeteoForecastSource};
+use ingest::{
+    Cadence, FetchCtx, Source,
+    firms::FirmsSource,
+    open_meteo::{ForecastModel, OpenMeteoForecastSource},
+};
 use risk::HeuristicV1;
 use store::{FreshnessThresholds, Store, SystemSnapshotContext};
 use tokio::{
@@ -93,9 +97,11 @@ async fn poll_forecast(
 ) {
     let mut ticker = interval(FORECAST_POLL_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let forecast_sources = [ForecastModel::MeteoFrance, ForecastModel::Ecmwf]
+        .map(|model| OpenMeteoForecastSource::new(model).id());
     let forecast_is_fresh = store.source_statuses().await.is_ok_and(|statuses| {
         statuses.into_iter().any(|status| {
-            status.id == OpenMeteoForecastSource::ID
+            forecast_sources.contains(&status.id.as_str())
                 && status.last_success.is_some_and(|last_success| {
                     let age = Utc::now().signed_duration_since(last_success);
                     age >= ChronoDuration::zero() && age < ChronoDuration::minutes(55)
@@ -140,8 +146,12 @@ async fn poll_forecast(
         };
         match result {
             Ok(summary) => {
-                record_success(&store, OpenMeteoForecastSource::ID, summary.anchors).await;
+                if let Some(primary_error) = &summary.primary_error {
+                    record_error(&store, forecast_sources[0], primary_error).await;
+                }
+                record_success(&store, summary.source_id, summary.anchors).await;
                 tracing::info!(
+                    source = summary.source_id,
                     computed_at = %summary.computed_at,
                     base_valid_at = %summary.base_valid_at,
                     anchors = summary.anchors,
@@ -151,8 +161,9 @@ async fn poll_forecast(
                 );
             }
             Err(error) => {
-                tracing::error!(source = OpenMeteoForecastSource::ID, %error, "scheduled forecast failed; continuing");
-                record_error(&store, OpenMeteoForecastSource::ID, &error.to_string()).await;
+                tracing::error!(%error, "scheduled weather forecast failed; continuing");
+                record_error(&store, forecast_sources[0], &error.to_string()).await;
+                record_error(&store, forecast_sources[1], &error.to_string()).await;
             }
         }
     }
