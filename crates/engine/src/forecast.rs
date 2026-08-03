@@ -94,7 +94,7 @@ pub async fn recompute_forecast_regions(
     let anchors = anchor_groups.iter().flatten().copied().collect::<Vec<_>>();
     let client = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_mins(2))
         .build()
         .context("failed to configure direct weather HTTP client")?;
     match primary.fetch(&client, &anchors).await {
