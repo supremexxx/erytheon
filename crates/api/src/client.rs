@@ -91,6 +91,18 @@ async fn commune_risk(
                 "commune boundary could not be resolved to H3 cells",
             )
         })?;
+    if cells.is_empty() {
+        // A commune whose polygon contains no H3 cell centroid at the
+        // configured resolution (small or narrow shapes) is a distinct
+        // failure from "valid commune, no scores computed yet" -- the
+        // latter still returns an empty FeatureCollection below, but
+        // this case must not be silently indistinguishable from it.
+        tracing::error!(insee_code, "commune boundary resolved to zero H3 cells");
+        return Err(ApiError::service_unavailable(
+            "commune_geometry_unresolvable",
+            "commune boundary could not be resolved to H3 cells",
+        ));
+    }
     let scores = state
         .store()
         .latest_risk_scores(&cells, min_score, horizon)

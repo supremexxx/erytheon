@@ -183,3 +183,47 @@ async fn commune_risk_cells_stay_inside_the_commune_bbox() {
         }
     }
 }
+
+/// A commune whose polygon contains no H3 cell centroid at the server's
+/// configured resolution must fail loudly, not return an empty
+/// `FeatureCollection` indistinguishable from "no scores computed yet".
+/// The tiny square below is built around one vertex of a real H3-9
+/// cell: cell vertices are, by construction, the points locally
+/// farthest from every neighboring cell's centroid, so a square this
+/// small around one can never contain a centroid -- this is
+/// deterministic, not a low-probability coincidence.
+#[tokio::test]
+async fn commune_too_small_for_any_h3_cell_is_a_clear_error_not_an_empty_map() {
+    let Some(store) = connect().await else {
+        return;
+    };
+    let grid = grid::H3Grid::new(9).expect("valid grid");
+    let cell = grid.cell_for_point(43.6, 1.4).expect("valid coordinate");
+    let boundary = cell.boundary();
+    let vertex = boundary.iter().next().expect("cell has a boundary");
+    let (lng, lat) = (vertex.lng(), vertex.lat());
+    let delta = 0.00001; // roughly one metre; H3-9 cells are ~174 m across
+    let geometry: Value = json!({
+        "type": "Polygon",
+        "coordinates": [[
+            [lng - delta, lat - delta],
+            [lng + delta, lat - delta],
+            [lng + delta, lat + delta],
+            [lng - delta, lat + delta],
+            [lng - delta, lat - delta],
+        ]],
+    });
+    let insee_code = "00002";
+    store
+        .upsert_commune_boundary(insee_code, "Micro-commune", &[], &geometry)
+        .await
+        .expect("seed micro commune boundary");
+    let app = build_app(store);
+
+    let (status, body) = get_json(&app, &format!("/api/client/communes/{insee_code}/risk")).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        body["error"]["code"],
+        json!("commune_geometry_unresolvable")
+    );
+}

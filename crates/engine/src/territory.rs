@@ -61,7 +61,7 @@ impl Territory {
                 .try_into()
                 .context("territory feature has invalid geometry")?;
             anyhow::ensure!(
-                matches!(geometry, Geometry::Polygon(_) | Geometry::MultiPolygon(_)),
+                grid::is_polygonal(&geometry),
                 "department {code} is not polygonal"
             );
             anyhow::ensure!(

@@ -33,8 +33,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError`] when the geometry cannot be serialized or the
-    /// database operation fails.
+    /// Returns [`StoreError`] when the database operation fails.
     pub async fn upsert_commune_boundary(
         &self,
         insee_code: &str,
@@ -42,22 +41,19 @@ impl Store {
         postal_codes: &[String],
         boundary: &serde_json::Value,
     ) -> Result<(), StoreError> {
-        let geometry_text = serde_json::to_string(boundary)?;
         sqlx::query(
             "INSERT INTO reference.commune_boundaries
-                (insee_code, name, postal_codes, geom, boundary, updated_at)
-             VALUES ($1, $2, $3, ST_SetSRID(ST_GeomFromGeoJSON($4), 4326), $5, NOW())
+                (insee_code, name, postal_codes, boundary, updated_at)
+             VALUES ($1, $2, $3, $4, NOW())
              ON CONFLICT (insee_code) DO UPDATE SET
                 name = EXCLUDED.name,
                 postal_codes = EXCLUDED.postal_codes,
-                geom = EXCLUDED.geom,
                 boundary = EXCLUDED.boundary,
                 updated_at = NOW()",
         )
         .bind(insee_code)
         .bind(name)
         .bind(postal_codes)
-        .bind(geometry_text)
         .bind(boundary)
         .execute(&self.pool)
         .await?;
@@ -94,7 +90,7 @@ impl Store {
             .map_err(|error: geojson::Error| {
                 StoreError::InvalidCommuneBoundary(error.to_string())
             })?;
-        if !matches!(geometry, Geometry::Polygon(_) | Geometry::MultiPolygon(_)) {
+        if !grid::is_polygonal(&geometry) {
             return Err(StoreError::InvalidCommuneBoundary(format!(
                 "commune {insee_code} boundary is not polygonal"
             )));

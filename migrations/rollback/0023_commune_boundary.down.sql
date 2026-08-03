@@ -5,5 +5,4 @@ BEGIN
     END IF;
 END $$;
 
-DROP INDEX IF EXISTS reference.commune_boundaries_geom_gix;
 DROP TABLE IF EXISTS reference.commune_boundaries;
