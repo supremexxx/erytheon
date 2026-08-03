@@ -8,6 +8,7 @@ const DEFAULT_FIRMS_FIXTURE_PATH: &str = "testdata/firms_viirs_snpp.csv";
 const DEFAULT_METEOFRANCE_FIXTURE_PATH: &str = "testdata/meteo_france_synop.csv";
 const DEFAULT_BACKTEST_WEATHER_PATH: &str = "data/synop";
 const DEFAULT_WEATHER_IDW_POWER: &str = "2.0";
+const DEFAULT_WEATHER_CACHE_DIR: &str = "out/weather";
 const DEFAULT_OSM_PATH: &str = "testdata/osm_features.csv";
 const DEFAULT_BDIFF_PATH: &str = "testdata/bdiff_aude.csv";
 const DEFAULT_PROMETHEE_PATH: &str = "testdata/promethee_aude.csv";
@@ -43,6 +44,7 @@ pub struct Config {
     pub meteofrance_fixture_path: PathBuf,
     pub backtest_weather_path: PathBuf,
     pub weather_idw_power: f64,
+    pub weather_cache_dir: PathBuf,
     pub osm_path: PathBuf,
     pub bdiff_path: PathBuf,
     pub promethee_path: PathBuf,
@@ -80,6 +82,10 @@ impl Config {
                 DEFAULT_BACKTEST_WEATHER_PATH,
             )),
             weather_idw_power: parse_env("WEATHER_IDW_POWER", DEFAULT_WEATHER_IDW_POWER)?,
+            weather_cache_dir: PathBuf::from(env_or_default(
+                "WEATHER_CACHE_DIR",
+                DEFAULT_WEATHER_CACHE_DIR,
+            )),
             osm_path: PathBuf::from(env_or_default("OSM_PATH", DEFAULT_OSM_PATH)),
             bdiff_path: PathBuf::from(env_or_default("BDIFF_PATH", DEFAULT_BDIFF_PATH)),
             promethee_path: PathBuf::from(env_or_default("PROMETHEE_PATH", DEFAULT_PROMETHEE_PATH)),
@@ -142,6 +148,7 @@ impl Config {
             meteofrance_fixture_path = %self.meteofrance_fixture_path.display(),
             backtest_weather_path = %self.backtest_weather_path.display(),
             weather_idw_power = self.weather_idw_power,
+            weather_cache_dir = %self.weather_cache_dir.display(),
             osm_path = %self.osm_path.display(),
             bdiff_path = %self.bdiff_path.display(),
             promethee_path = %self.promethee_path.display(),

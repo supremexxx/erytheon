@@ -41,7 +41,8 @@ Le stockage PostgreSQL/PostGIS sépare les données brutes, le staging, les év�
 Les principales sources prises en charge sont :
 
 - NASA FIRMS pour les détections satellitaires ;
-- Météo-France et Open-Meteo AROME/ARPEGE pour les observations et prévisions ;
+- Météo-France pour les observations, ECMWF IFS Open Data en accès direct pour les prévisions
+  opérationnelles, et Open-Meteo AROME/ECMWF comme repli contrôlé ;
 - BDIFF et Prométhée pour l'historique incendie ;
 - OpenStreetMap, CORINE Land Cover, INSEE et calendriers territoriaux pour les features statiques.
 

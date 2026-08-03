@@ -34,6 +34,7 @@ services:
       METEOFRANCE_FIXTURE_PATH: /app/testdata/meteo_france_synop.csv
       BACKTEST_WEATHER_PATH: /data/synop
       WEATHER_IDW_POWER: ${WEATHER_IDW_POWER}
+      WEATHER_CACHE_DIR: ${WEATHER_CACHE_DIR:-/app/out/weather}
       OSM_PATH: ${OSM_PATH:-/data/osm/france-h3-r8.jsonl}
       BDIFF_PATH: ${BDIFF_PATH:-/data/bdiff/france.csv}
       PROMETHEE_PATH: ${PROMETHEE_PATH:-/data/promethee/france.csv}

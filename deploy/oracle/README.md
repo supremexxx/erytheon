@@ -1,6 +1,6 @@
 # Free Oracle deployment
 
-This stack deploys the current PyroRisk pilot on one Oracle Cloud Always Free ARM instance. It keeps PostgreSQL private, exposes only Caddy on ports 80/443, runs the live FIRMS and AROME/ARPEGE scheduler, and optionally uploads one rolling PostgreSQL backup to Cloudflare R2.
+This stack deploys ERYTHEON on one Oracle Cloud Always Free ARM instance. It keeps PostgreSQL private, exposes only Caddy on ports 80/443, runs the live FIRMS and weather scheduler, and optionally uploads one rolling PostgreSQL backup to Cloudflare R2.
 
 ## 1. Create the VM
 
@@ -100,6 +100,13 @@ The application applies its migrations automatically. Its first forecast normall
 ```sh
 curl http://YOUR_SERVER_IP/health
 ```
+
+Operational forecasts use the public ECMWF IFS 0.25-degree open-data service directly, without
+an account or API key. The application downloads only the required GRIB byte ranges, decodes them
+inside the container, and keeps the derived grids under `WEATHER_CACHE_DIR` (default:
+`/app/out/weather`). Open-Meteo AROME and ECMWF remain bounded fallbacks if the direct ECMWF
+acquisition fails. A complete forecast batch is published atomically; the preceding complete batch
+remains served if every provider fails.
 
 When `PYRORISK_DOMAIN` contains a DNS name that resolves to the VM, Caddy obtains and renews the TLS certificate automatically; use `https://YOUR_DOMAIN/health` instead.
 

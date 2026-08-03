@@ -30,7 +30,7 @@ LABEL org.opencontainers.image.revision="${OCI_REVISION}" \
       erytheon.science_console="${ERYTHEON_SCIENCE_CONSOLE}"
 
 RUN apt-get update && \
-    apt-get install --yes --no-install-recommends ca-certificates curl gdal-bin && \
+    apt-get install --yes --no-install-recommends ca-certificates curl gdal-bin libeccodes-tools && \
     rm -rf /var/lib/apt/lists/* && \
     useradd --create-home --uid 10001 --shell /usr/sbin/nologin pyrorisk && \
     mkdir -p /app/out /data && \
