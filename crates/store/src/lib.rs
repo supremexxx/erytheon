@@ -1414,10 +1414,17 @@ impl Store {
         .bind(computed_at)
         .execute(&mut *transaction)
         .await?;
-        sqlx::query("DELETE FROM forecast_batches WHERE computed_at <> $1")
-            .bind(computed_at)
-            .execute(&mut *transaction)
-            .await?;
+        sqlx::query(
+            "DELETE FROM forecast_batches AS batch
+             WHERE batch.computed_at <> $1
+               AND NOT EXISTS (
+                   SELECT 1 FROM observability.scientific_snapshots AS snapshot
+                   WHERE snapshot.forecast_batch_computed_at = batch.computed_at
+               )",
+        )
+        .bind(computed_at)
+        .execute(&mut *transaction)
+        .await?;
         transaction.commit().await?;
         Ok(())
     }
