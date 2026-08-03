@@ -32,6 +32,11 @@ const DEFAULT_API_BIND: &str = "0.0.0.0:8080";
 /// `SCIENTIFIC_CONSOLE_ARCHITECTURE.md` for the honest limitation and
 /// the Phase 4B follow-up).
 const DEFAULT_SCIENCE_CONSOLE_ENABLED: &str = "false";
+/// The client-facing commune console's routes (`/client`,
+/// `/api/client/*`) are only mounted when this is `true`. Defaults to
+/// `false` for the same reason as `SCIENCE_CONSOLE_ENABLED`: this is a
+/// deployment gate for an early prototype, not access control.
+const DEFAULT_CLIENT_CONSOLE_ENABLED: &str = "false";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -58,6 +63,7 @@ pub struct Config {
     pub risk: RiskConfig,
     pub api_bind: SocketAddr,
     pub science_console_enabled: bool,
+    pub client_console_enabled: bool,
 }
 
 impl Config {
@@ -117,6 +123,10 @@ impl Config {
             science_console_enabled: parse_env(
                 "SCIENCE_CONSOLE_ENABLED",
                 DEFAULT_SCIENCE_CONSOLE_ENABLED,
+            )?,
+            client_console_enabled: parse_env(
+                "CLIENT_CONSOLE_ENABLED",
+                DEFAULT_CLIENT_CONSOLE_ENABLED,
             )?,
         };
         config.validate()?;

@@ -10,6 +10,7 @@ use risk::{Factor, Horizon, RiskScore};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 
 mod bdiff;
+mod commune;
 mod dataset;
 mod firms;
 mod model_candidate;
@@ -18,6 +19,7 @@ mod quality;
 mod science;
 
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
+pub use commune::CommuneBoundary;
 pub use dataset::{
     AnyCauseEventForNegativeDesign, CalendarDayLookup, CalendarRuleVersion, DatasetBuildCounts,
     DatasetEventLinkRecord, DatasetExclusionRecord, DatasetRowRecord, DatasetVersionSpec,
@@ -1603,4 +1605,7 @@ pub enum StoreError {
     /// than overwrite.
     #[error("model candidate checksum conflict: {0}")]
     ModelCandidateChecksumConflict(String),
+    /// A persisted commune boundary was not a valid polygonal geometry.
+    #[error("invalid persisted commune boundary: {0}")]
+    InvalidCommuneBoundary(String),
 }

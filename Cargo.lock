@@ -2847,6 +2847,8 @@ dependencies = [
  "dataset",
  "dotenvy",
  "fwi",
+ "geo",
+ "geojson",
  "grid",
  "ingest",
  "quality",
