@@ -6,6 +6,8 @@ All notable changes to PyroRisk are documented in this file.
 
 ### Added
 
+- Direct, credential-free ECMWF IFS open-data weather acquisition with local decoded-grid caching
+  and controlled Open-Meteo fallback.
 - Phase 0 Cargo workspace with the seven required crates.
 - PostgreSQL 16/PostGIS Docker Compose service and initial SQLx migration.
 - Typed, validated environment configuration with documented defaults.

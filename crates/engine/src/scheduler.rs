@@ -5,6 +5,7 @@ use chrono::{Datelike, Duration as ChronoDuration, Utc, Weekday};
 use grid::H3Grid;
 use ingest::{
     Cadence, FetchCtx, Source,
+    ecmwf_open::EcmwfOpenDataForecastSource,
     firms::FirmsSource,
     open_meteo::{ForecastModel, OpenMeteoForecastSource},
 };
@@ -97,8 +98,11 @@ async fn poll_forecast(
 ) {
     let mut ticker = interval(FORECAST_POLL_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    let forecast_sources = [ForecastModel::MeteoFrance, ForecastModel::Ecmwf]
-        .map(|model| OpenMeteoForecastSource::new(model).id());
+    let forecast_sources = [
+        EcmwfOpenDataForecastSource::ID,
+        OpenMeteoForecastSource::new(ForecastModel::MeteoFrance).id(),
+        OpenMeteoForecastSource::new(ForecastModel::Ecmwf).id(),
+    ];
     let forecast_is_fresh = store.source_statuses().await.is_ok_and(|statuses| {
         statuses.into_iter().any(|status| {
             forecast_sources.contains(&status.id.as_str())
@@ -110,7 +114,7 @@ async fn poll_forecast(
     });
     if forecast_is_fresh {
         ticker.tick().await;
-        tracing::info!("recent AROME forecast retained after restart");
+        tracing::info!("recent operational weather forecast retained after restart");
     }
     loop {
         ticker.tick().await;
@@ -130,6 +134,7 @@ async fn poll_forecast(
                 grid,
                 &regions,
                 config.weather_idw_power,
+                &config.weather_cache_dir,
                 Some(&updates),
             )
             .await
@@ -140,14 +145,15 @@ async fn poll_forecast(
                 grid,
                 config.aoi_bbox,
                 config.weather_idw_power,
+                &config.weather_cache_dir,
                 Some(&updates),
             )
             .await
         };
         match result {
             Ok(summary) => {
-                if let Some(primary_error) = &summary.primary_error {
-                    record_error(&store, forecast_sources[0], primary_error).await;
+                for source_error in &summary.source_errors {
+                    record_error(&store, source_error.source_id, &source_error.message).await;
                 }
                 record_success(&store, summary.source_id, summary.anchors).await;
                 tracing::info!(
@@ -157,13 +163,14 @@ async fn poll_forecast(
                     anchors = summary.anchors,
                     cells = summary.cells,
                     elapsed_seconds = summary.elapsed_seconds,
-                    "scheduled AROME forecast complete"
+                    "scheduled weather forecast complete"
                 );
             }
             Err(error) => {
                 tracing::error!(%error, "scheduled weather forecast failed; continuing");
-                record_error(&store, forecast_sources[0], &error.to_string()).await;
-                record_error(&store, forecast_sources[1], &error.to_string()).await;
+                for source_id in forecast_sources {
+                    record_error(&store, source_id, &error.to_string()).await;
+                }
             }
         }
     }

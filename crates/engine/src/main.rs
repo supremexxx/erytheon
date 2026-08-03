@@ -867,6 +867,7 @@ async fn forecast(config: Config) -> anyhow::Result<()> {
             grid,
             &regions,
             config.weather_idw_power,
+            &config.weather_cache_dir,
             None,
         )
         .await
@@ -877,15 +878,16 @@ async fn forecast(config: Config) -> anyhow::Result<()> {
             grid,
             config.aoi_bbox,
             config.weather_idw_power,
+            &config.weather_cache_dir,
             None,
         )
         .await
     };
     match result {
         Ok(summary) => {
-            if let Some(primary_error) = &summary.primary_error {
+            for source_error in &summary.source_errors {
                 store
-                    .record_source_error("open_meteo_arome", primary_error)
+                    .record_source_error(source_error.source_id, &source_error.message)
                     .await?;
             }
             store

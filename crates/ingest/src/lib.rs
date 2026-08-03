@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 pub mod bdiff;
 pub mod calendar;
 pub mod corine;
+pub mod ecmwf_open;
 pub mod fire_history;
 pub mod firms;
 pub mod insee;

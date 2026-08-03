@@ -87,7 +87,10 @@
 
 ## Phase 8
 
-- The operational weather connector uses Open-Meteo's Météo-France endpoint as a transport for the `meteofrance_seamless` AROME/ARPEGE product. This avoids a GRIB decoder and weather API credential in the prototype while preserving Météo-France forecast inputs.
+- Operational forecasts use ECMWF IFS 0.25-degree open data through direct GRIB byte-range
+  downloads. The runtime derives relative humidity from temperature/dewpoint, wind speed from its
+  vector components, and rolling 24-hour rain from accumulated precipitation. Open-Meteo's
+  Météo-France and ECMWF endpoints remain bounded fallbacks, not the primary transport.
 - Fifty-four anchors on a 0.20-degree grid cover the default Aude AOI. Each H3 cell uses inverse-distance weighting over its four nearest anchors; this is an engineering interpolation choice, not a claim of native H3 model resolution.
 - Forecast moisture codes advance only at forecast noon. Each requested horizon then recomputes ISI and FWI using the target-hour wind and the latest preceding noon moisture state, avoiding four moisture-code advances for one day.
 - If no prior persisted daily FWI state is available, the forecast starts from standard FFMC 85, DMC 6, and DC 15. Subsequent batches reuse the latest prior noon state when its date is appropriate.

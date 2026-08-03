@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{collections::HashMap, path::Path, sync::Arc, time::Instant};
 
 use anyhow::Context as _;
 use chrono::{DateTime, Datelike as _, Days, Duration, Utc};
@@ -6,6 +6,7 @@ use fwi::{
     FwiOutput, FwiState, Weather, calculate_daily, fire_weather_index, initial_spread_index,
 };
 use grid::{BoundingBox, CellIndex, H3Grid, LatLng};
+use ingest::ecmwf_open::EcmwfOpenDataForecastSource;
 use ingest::open_meteo::{
     ForecastLocation, ForecastModel, ForecastSample, OpenMeteoError, OpenMeteoForecastSource,
 };
@@ -15,6 +16,7 @@ use store::{ForecastFwiRow, FwiStateRow, Store};
 use tokio::sync::broadcast;
 
 const ANCHOR_STEP_DEGREES: f64 = 0.20;
+const DIRECT_WEATHER_GRID_PADDING: f64 = 0.25;
 const NEAREST_ANCHOR_COUNT: usize = 4;
 const EXACT_ANCHOR_DISTANCE_KM: f64 = 1.0e-9;
 
@@ -27,7 +29,13 @@ pub struct ForecastSummary {
     pub scores_upserted: u64,
     pub elapsed_seconds: f64,
     pub source_id: &'static str,
-    pub primary_error: Option<String>,
+    pub source_errors: Vec<ForecastSourceError>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ForecastSourceError {
+    pub source_id: &'static str,
+    pub message: String,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -37,7 +45,7 @@ pub struct ForecastRegion<'a> {
     pub cells: &'a [CellIndex],
 }
 
-/// Fetches AROME/ARPEGE weather and publishes four operational risk horizons.
+/// Fetches operational weather and publishes four operational risk horizons.
 #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
 pub async fn recompute_forecast(
     store: &Store,
@@ -45,6 +53,7 @@ pub async fn recompute_forecast(
     grid: H3Grid,
     aoi: BoundingBox,
     idw_power: f64,
+    weather_cache_dir: &Path,
     updates: Option<&broadcast::Sender<Arc<api::RiskUpdate>>>,
 ) -> anyhow::Result<ForecastSummary> {
     let cells = grid
@@ -60,6 +69,7 @@ pub async fn recompute_forecast(
             cells: &cells,
         }],
         idw_power,
+        weather_cache_dir,
         updates,
     )
     .await
@@ -68,6 +78,102 @@ pub async fn recompute_forecast(
 /// Recomputes one atomic forecast batch from sequential geographic partitions.
 #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
 pub async fn recompute_forecast_regions(
+    store: &Store,
+    model: &impl IgnitionModel,
+    grid: H3Grid,
+    regions: &[ForecastRegion<'_>],
+    idw_power: f64,
+    weather_cache_dir: &Path,
+    updates: Option<&broadcast::Sender<Arc<api::RiskUpdate>>>,
+) -> anyhow::Result<ForecastSummary> {
+    let primary = EcmwfOpenDataForecastSource::new(weather_cache_dir, combined_bbox(regions)?);
+    let anchor_groups = regions
+        .iter()
+        .map(|region| anchor_grid(region.bbox))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let anchors = anchor_groups.iter().flatten().copied().collect::<Vec<_>>();
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_mins(2))
+        .build()
+        .context("failed to configure direct weather HTTP client")?;
+    match primary.fetch(&client, &anchors).await {
+        Ok(forecasts) => {
+            let forecasts = split_forecasts(forecasts, &anchor_groups)?;
+            recompute_forecast_regions_with_data(
+                store,
+                model,
+                grid,
+                regions,
+                &forecasts,
+                idw_power,
+                updates,
+                EcmwfOpenDataForecastSource::ID,
+            )
+            .await
+        }
+        Err(primary_error) => {
+            tracing::warn!(
+                primary = EcmwfOpenDataForecastSource::ID,
+                error = %primary_error,
+                "direct ECMWF acquisition failed; using normalized weather fallback"
+            );
+            let mut summary =
+                recompute_open_meteo_with_failover(store, model, grid, regions, idw_power, updates)
+                    .await?;
+            summary.source_errors.insert(
+                0,
+                ForecastSourceError {
+                    source_id: EcmwfOpenDataForecastSource::ID,
+                    message: primary_error.to_string(),
+                },
+            );
+            Ok(summary)
+        }
+    }
+}
+
+fn combined_bbox(regions: &[ForecastRegion<'_>]) -> anyhow::Result<BoundingBox> {
+    let first = regions.first().context("forecast region list is empty")?;
+    let (mut west, mut south, mut east, mut north) = (
+        first.bbox.west,
+        first.bbox.south,
+        first.bbox.east,
+        first.bbox.north,
+    );
+    for region in &regions[1..] {
+        west = west.min(region.bbox.west);
+        south = south.min(region.bbox.south);
+        east = east.max(region.bbox.east);
+        north = north.max(region.bbox.north);
+    }
+    BoundingBox::new(
+        west - DIRECT_WEATHER_GRID_PADDING,
+        south - DIRECT_WEATHER_GRID_PADDING,
+        east + DIRECT_WEATHER_GRID_PADDING,
+        north + DIRECT_WEATHER_GRID_PADDING,
+    )
+    .context("invalid combined forecast bounding box")
+}
+
+fn split_forecasts(
+    forecasts: Vec<ForecastLocation>,
+    anchor_groups: &[Vec<LatLng>],
+) -> anyhow::Result<Vec<Vec<ForecastLocation>>> {
+    let expected = anchor_groups.iter().map(Vec::len).sum::<usize>();
+    anyhow::ensure!(
+        forecasts.len() == expected,
+        "direct weather source returned {} locations; expected {expected}",
+        forecasts.len()
+    );
+    let mut forecasts = forecasts.into_iter();
+    Ok(anchor_groups
+        .iter()
+        .map(|anchors| forecasts.by_ref().take(anchors.len()).collect())
+        .collect())
+}
+
+async fn recompute_open_meteo_with_failover(
     store: &Store,
     model: &impl IgnitionModel,
     grid: H3Grid,
@@ -95,7 +201,10 @@ pub async fn recompute_forecast_regions(
             )
             .await
             .context("ECMWF fallback forecast failed")?;
-            summary.primary_error = Some(primary_error.to_string());
+            summary.source_errors.push(ForecastSourceError {
+                source_id: primary.id(),
+                message: primary_error.to_string(),
+            });
             Ok(summary)
         }
         Err(error) => Err(error),
@@ -118,18 +227,56 @@ async fn recompute_forecast_regions_from_source(
     source: OpenMeteoForecastSource,
 ) -> anyhow::Result<ForecastSummary> {
     anyhow::ensure!(!regions.is_empty(), "forecast region list is empty");
+    let client = reqwest::Client::new();
+    let mut forecasts = Vec::with_capacity(regions.len());
+    for region in regions {
+        let anchors = anchor_grid(region.bbox)?;
+        forecasts.push(
+            source.fetch(&client, &anchors).await.with_context(|| {
+                format!("failed to fetch weather forecast from {}", source.id())
+            })?,
+        );
+    }
+    recompute_forecast_regions_with_data(
+        store,
+        model,
+        grid,
+        regions,
+        &forecasts,
+        idw_power,
+        updates,
+        source.id(),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn recompute_forecast_regions_with_data(
+    store: &Store,
+    model: &impl IgnitionModel,
+    grid: H3Grid,
+    regions: &[ForecastRegion<'_>],
+    forecasts_by_region: &[Vec<ForecastLocation>],
+    idw_power: f64,
+    updates: Option<&broadcast::Sender<Arc<api::RiskUpdate>>>,
+    source_id: &'static str,
+) -> anyhow::Result<ForecastSummary> {
+    anyhow::ensure!(!regions.is_empty(), "forecast region list is empty");
+    anyhow::ensure!(
+        forecasts_by_region.len() == regions.len(),
+        "forecast data does not match region count"
+    );
     let started = Instant::now();
     let computed_at = Utc::now();
     store
         .begin_forecast_batch(computed_at)
         .await
         .context("failed to register forecast batch")?;
-    let client = reqwest::Client::new();
     let mut base_valid_at = None;
     let mut anchors = 0;
     let mut cells = 0;
     let mut scores_upserted = 0;
-    for region in regions {
+    for (region, forecasts) in regions.iter().zip(forecasts_by_region) {
         tracing::info!(
             territory = region.code,
             cells = region.cells.len(),
@@ -141,11 +288,10 @@ async fn recompute_forecast_regions_from_source(
             grid,
             *region,
             idw_power,
-            &client,
             computed_at,
             base_valid_at,
             updates,
-            source,
+            forecasts,
         )
         .await;
         let summary = match summary {
@@ -184,8 +330,8 @@ async fn recompute_forecast_regions_from_source(
         cells,
         scores_upserted,
         elapsed_seconds: started.elapsed().as_secs_f64(),
-        source_id: source.id(),
-        primary_error: None,
+        source_id,
+        source_errors: Vec::new(),
     })
 }
 
@@ -207,25 +353,19 @@ async fn recompute_forecast_partition(
     grid: H3Grid,
     region: ForecastRegion<'_>,
     idw_power: f64,
-    client: &reqwest::Client,
     computed_at: DateTime<Utc>,
     expected_base_valid_at: Option<DateTime<Utc>>,
     updates: Option<&broadcast::Sender<Arc<api::RiskUpdate>>>,
-    source: OpenMeteoForecastSource,
+    forecasts: &[ForecastLocation],
 ) -> anyhow::Result<PartitionSummary> {
-    let anchors = anchor_grid(region.bbox)?;
-    let forecasts = source
-        .fetch(client, &anchors)
-        .await
-        .with_context(|| format!("failed to fetch weather forecast from {}", source.id()))?;
     let base_valid_at =
-        expected_base_valid_at.map_or_else(|| latest_available_hour(&forecasts, Utc::now()), Ok)?;
+        expected_base_valid_at.map_or_else(|| latest_available_hour(forecasts, Utc::now()), Ok)?;
     let valid_times = Horizon::ALL.map(|horizon| base_valid_at + Duration::hours(horizon.hours()));
     let noon_times = daily_noons(valid_times)?;
-    let target_samples = forecast_samples(&forecasts, &valid_times)?;
-    let noon_samples = forecast_samples(&forecasts, &noon_times)?;
+    let target_samples = forecast_samples(forecasts, &valid_times)?;
+    let noon_samples = forecast_samples(forecasts, &noon_times)?;
     let cells = region.cells;
-    let interpolation = interpolation_weights(grid, cells, &forecasts, idw_power)?;
+    let interpolation = interpolation_weights(grid, cells, forecasts, idw_power)?;
     let previous_date = noon_times[0]
         .date_naive()
         .checked_sub_days(Days::new(1))
