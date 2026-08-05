@@ -414,7 +414,7 @@
   }
 
   function updateShellContext(overview, sources = []) {
-    const weather = findSource(sources, /(open.?meteo|weather|forecast|météo|meteo)/i);
+    const weather = findSource(sources, /(open.?meteo|weather|forecast|météo|meteo|ecmwf)/i);
     const systemState = document.querySelector("#sci-system-state");
     const coreState = document.querySelector("#sci-core-state");
     const healthy = overview.app_status === "ok" && overview.db_status === "ok";
@@ -452,8 +452,8 @@
         fetchJSON("/api/science/system"),
       ]);
       updateShellContext(data, sources);
-      const weather = findSource(sources, /(open.?meteo|weather|forecast|météo|meteo)/i);
-      const weatherPipeline = pipelines.find((pipeline) => /(open.?meteo|weather|forecast|météo|meteo)/i.test(pipeline.pipeline_name));
+      const weather = findSource(sources, /(open.?meteo|weather|forecast|météo|meteo|ecmwf)/i);
+      const weatherPipeline = pipelines.find((pipeline) => /(open.?meteo|weather|forecast|météo|meteo|ecmwf)/i.test(pipeline.pipeline_name));
       const causeRows = quality.cause_counts.map((row) => ({
         label: CAUSE_LABELS[row.category] ?? row.category,
         value: row.count,
@@ -617,7 +617,7 @@
         fetchJSON("/api/science/imports?limit=50"),
         fetchJSON("/api/science/pipelines?limit=50"),
       ]);
-      const weather = findSource(sources, /(open.?meteo|weather|forecast|météo|meteo)/i);
+      const weather = findSource(sources, /(open.?meteo|weather|forecast|météo|meteo|ecmwf)/i);
       const firms = findSource(sources, /firms/i);
       return `
         ${pageHeader("Observabilité", "Sources et pipelines", "Fraîcheur, exécutions et erreurs réellement exposées.", "50 derniers runs")}
