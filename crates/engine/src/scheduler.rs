@@ -156,6 +156,19 @@ async fn poll_forecast(
                     record_error(&store, source_error.source_id, &source_error.message).await;
                 }
                 record_success(&store, summary.source_id, summary.anchors).await;
+                // A source further down the fallback chain that this cycle
+                // never had to try (because something earlier in the chain
+                // already worked) must not keep displaying whatever error
+                // it last recorded, possibly days ago -- that reads as a
+                // live failure when it is actually just unused right now.
+                let attempted: Vec<&str> = std::iter::once(summary.source_id)
+                    .chain(summary.source_errors.iter().map(|error| error.source_id))
+                    .collect();
+                for source_id in forecast_sources {
+                    if !attempted.contains(&source_id) {
+                        clear_stale_error(&store, source_id).await;
+                    }
+                }
                 tracing::info!(
                     source = summary.source_id,
                     computed_at = %summary.computed_at,
@@ -206,6 +219,12 @@ async fn record_success(store: &Store, source: &str, count: usize) {
 async fn record_error(store: &Store, source: &str, message: &str) {
     if let Err(error) = store.record_source_error(source, message).await {
         tracing::error!(source, %error, "failed to record source error");
+    }
+}
+
+async fn clear_stale_error(store: &Store, source: &str) {
+    if let Err(error) = store.clear_stale_source_error(source).await {
+        tracing::error!(source, %error, "failed to clear stale source error");
     }
 }
 

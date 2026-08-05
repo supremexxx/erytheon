@@ -1479,6 +1479,28 @@ impl Store {
         Ok(())
     }
 
+    /// Clears a stale `recent_error` left by a lower-priority fallback
+    /// source that a poll cycle did not need to try because a
+    /// higher-priority source in the same chain already succeeded.
+    /// Never touches `last_run`/`last_success`/`observation_count`: a
+    /// source that has not actually run keeps reporting that honestly.
+    /// This only removes a message that would otherwise sit unchanged
+    /// forever and misrepresent a long-past failure as a live one.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the update fails.
+    pub async fn clear_stale_source_error(&self, id: &str) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE source_status SET recent_error = NULL
+             WHERE id = $1 AND recent_error IS NOT NULL",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Lists operational source states in stable identifier order.
     ///
     /// # Errors
