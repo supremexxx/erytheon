@@ -8,6 +8,8 @@ rust-version.workspace = true
 [dependencies]
 chrono.workspace = true
 fwi = { path = "../fwi" }
+geo.workspace = true
+geojson.workspace = true
 grid = { path = "../grid" }
 ingest = { path = "../ingest" }
 quality = { path = "../quality" }

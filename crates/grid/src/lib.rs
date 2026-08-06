@@ -212,6 +212,13 @@ pub fn cell_from_db(value: i64) -> Result<CellIndex, GridError> {
     CellIndex::try_from(bits).map_err(|error| GridError::InvalidCell(error.to_string()))
 }
 
+/// Returns whether `geometry` is a `Polygon` or `MultiPolygon` -- the
+/// only shapes [`H3Grid::cells_for_geometry`] accepts.
+#[must_use]
+pub fn is_polygonal(geometry: &Geometry<f64>) -> bool {
+    matches!(geometry, Geometry::Polygon(_) | Geometry::MultiPolygon(_))
+}
+
 /// Spatial projection failures.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum GridError {

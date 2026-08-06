@@ -22,6 +22,7 @@ use store::{FwiSnapshot, SourceStatusRow, Store, StoredRiskScore};
 use tokio::sync::broadcast;
 use tower_http::trace::TraceLayer;
 
+mod client;
 mod science;
 
 const DASHBOARD_HTML: &str = include_str!("../static/index.html");
@@ -40,6 +41,7 @@ pub struct AppState {
     territory_label: String,
     operational_cells: Option<Arc<Vec<CellIndex>>>,
     science_console_enabled: bool,
+    client_console_enabled: bool,
 }
 
 impl AppState {
@@ -59,6 +61,7 @@ impl AppState {
             territory_label: "Aude · Occitanie".to_owned(),
             operational_cells: None,
             science_console_enabled: false,
+            client_console_enabled: false,
         }
     }
 
@@ -85,8 +88,22 @@ impl AppState {
         self
     }
 
+    /// Enables mounting the read-only `/client` and `/api/client/*`
+    /// routes. Defaults to `false` for the same reason as
+    /// `with_science_console_enabled` -- a deployment gate, not real
+    /// access control.
+    #[must_use]
+    pub const fn with_client_console_enabled(mut self, enabled: bool) -> Self {
+        self.client_console_enabled = enabled;
+        self
+    }
+
     pub(crate) fn store(&self) -> &Store {
         &self.store
+    }
+
+    pub(crate) fn grid(&self) -> H3Grid {
+        self.grid
     }
 }
 
@@ -185,6 +202,18 @@ pub fn router(state: AppState) -> Router {
             .nest("/api/science", science::router());
     }
 
+    // Client-facing commune console: same deployment-gate rationale as
+    // the scientific console above. Read-only, scoped to one commune's
+    // real boundary per request.
+    if state.client_console_enabled {
+        router = router
+            .route("/client", get(client_shell))
+            .route("/client/{*path}", get(client_shell))
+            .route("/client.css", get(client_css))
+            .route("/client.js", get(client_js))
+            .nest("/api/client", client::router());
+    }
+
     router
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
@@ -217,6 +246,34 @@ async fn science_js() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=300"),
         ],
         SCIENCE_JS,
+    )
+}
+
+const CLIENT_HTML: &str = include_str!("../static/client/index.html");
+const CLIENT_CSS: &str = include_str!("../static/client/client.css");
+const CLIENT_JS: &str = include_str!("../static/client/client.js");
+
+async fn client_shell() -> Html<&'static str> {
+    Html(CLIENT_HTML)
+}
+
+async fn client_css() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        CLIENT_CSS,
+    )
+}
+
+async fn client_js() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        CLIENT_JS,
     )
 }
 

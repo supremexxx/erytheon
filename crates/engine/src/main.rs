@@ -3,6 +3,7 @@ mod bdiff_pipeline;
 mod candidate_artifact;
 mod candidate_load_verification;
 mod candidate_pipeline;
+mod commune_loader;
 mod config;
 mod dataset_pipeline;
 mod export;
@@ -254,6 +255,24 @@ enum Command {
     DataStatus,
     /// Plans H3 work partitions from French department boundaries.
     TerritoryPlan,
+    /// Loads or replaces one commune boundary `GeoJSON` fixture, keyed by
+    /// INSEE code, for the client-facing commune view. Generic: reusable
+    /// for any commune, not specific to a single one.
+    LoadCommuneBoundary {
+        /// Five-character INSEE municipality code, e.g. 31490.
+        #[arg(long)]
+        insee_code: String,
+        /// Path to a `GeoJSON` file containing a Polygon/MultiPolygon
+        /// geometry, or a single Feature/FeatureCollection wrapping one.
+        #[arg(long)]
+        geojson: PathBuf,
+        /// Commune name.
+        #[arg(long)]
+        name: String,
+        /// Comma-separated postal codes served by the commune.
+        #[arg(long, value_delimiter = ',')]
+        postal_codes: Vec<String>,
+    },
     /// Replays historical weather and evaluates observed ignitions.
     Backtest {
         /// First local calendar date to replay.
@@ -536,6 +555,12 @@ async fn main() -> anyhow::Result<()> {
         Command::OsmAggregate { output } => osm_aggregate(&config, &output).await,
         Command::DataStatus => data_status(config).await,
         Command::TerritoryPlan => territory_plan(&config),
+        Command::LoadCommuneBoundary {
+            insee_code,
+            geojson,
+            name,
+            postal_codes,
+        } => load_commune_boundary(config, &insee_code, &geojson, &name, &postal_codes).await,
         Command::Backtest {
             from,
             to,
@@ -840,6 +865,36 @@ fn territory_plan(config: &Config) -> anyhow::Result<()> {
     println!(
         "Duplicate border cells removed: {}",
         territory.duplicate_cells_removed
+    );
+    Ok(())
+}
+
+async fn load_commune_boundary(
+    config: Config,
+    insee_code: &str,
+    geojson: &Path,
+    name: &str,
+    postal_codes: &[String],
+) -> anyhow::Result<()> {
+    let fixture =
+        commune_loader::CommuneBoundaryFixture::load(geojson, insee_code, name, postal_codes)?;
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize database")?;
+    store
+        .upsert_commune_boundary(
+            &fixture.insee_code,
+            &fixture.name,
+            &fixture.postal_codes,
+            &fixture.geometry,
+        )
+        .await
+        .context("failed to persist commune boundary")?;
+    println!(
+        "Loaded commune boundary: {} ({}), postal codes: {}",
+        fixture.name,
+        fixture.insee_code,
+        fixture.postal_codes.join(", ")
     );
     Ok(())
 }
@@ -1314,7 +1369,8 @@ async fn run(config: Config) -> anyhow::Result<()> {
     });
     let mut app_state = AppState::new(store, grid, updates)
         .with_operational_area(config.aoi_bbox, territory_label)
-        .with_science_console_enabled(config.science_console_enabled);
+        .with_science_console_enabled(config.science_console_enabled)
+        .with_client_console_enabled(config.client_console_enabled);
     if let Some(territory) = &territory {
         let cells = territory
             .partitions
