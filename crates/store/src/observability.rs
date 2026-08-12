@@ -2,8 +2,8 @@
 //! snapshots. This module never scores a candidate, never activates a
 //! model, never touches the risk engine or FWI, and never deletes a
 //! published snapshot. See `PHASE4A5_SNAPSHOT_ARCHITECTURE_DECISION.md`
-//! for the volumetry reasoning behind the reduced scientific pilot
-//! scope (weekly cadence, `nowcast` horizon only).
+//! for the initial volumetry reasoning. The compact daily archive added
+//! later preserves the same `nowcast`-only scope without full-row overhead.
 
 use std::collections::BTreeMap;
 
@@ -1218,6 +1218,359 @@ impl Store {
         Ok(id)
     }
 
+    /// Captures one compact, immutable daily archive after a successful
+    /// operational forecast. Six FWI components are packed as network-order
+    /// float32 arrays in immutable coverage-mask H3 order. The first complete
+    /// forecast for a UTC validity date wins; later cycles are idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if provenance is incomplete, the exact forecast batch
+    /// is unavailable, coverage is incomplete, or publication fails.
+    pub async fn capture_daily_dense_scientific_snapshot(
+        &self,
+        forecast_batch_computed_at: DateTime<Utc>,
+        forecast_valid_at: DateTime<Utc>,
+        forecast_source_id: &str,
+    ) -> Result<ScientificSnapshotRow, StoreError> {
+        let context = ScientificSnapshotContext {
+            environment: std::env::var("ERYTHEON_ENVIRONMENT")
+                .unwrap_or_else(|_| "default".to_owned()),
+            application_revision: std::env::var("ERYTHEON_GIT_REVISION")
+                .or_else(|_| std::env::var("ERYTHEON_APPLICATION_REVISION"))
+                .unwrap_or_default(),
+            application_image: std::env::var("ERYTHEON_IMAGE_REFERENCE")
+                .or_else(|_| std::env::var("ERYTHEON_APPLICATION_IMAGE"))
+                .unwrap_or_default(),
+            application_image_digest: std::env::var("ERYTHEON_IMAGE_DIGEST").unwrap_or_default(),
+        };
+        self.capture_daily_dense_scientific_snapshot_v2(
+            forecast_batch_computed_at,
+            forecast_valid_at,
+            forecast_source_id,
+            &context,
+        )
+        .await
+    }
+
+    /// Context-explicit daily archive capture used by controlled tooling and
+    /// integration tests. Production should normally call the environment-
+    /// backed wrapper above.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when provenance, freshness, coverage, or persistence
+    /// does not satisfy the strict publication contract.
+    #[allow(clippy::too_many_lines)]
+    pub async fn capture_daily_dense_scientific_snapshot_v2(
+        &self,
+        forecast_batch_computed_at: DateTime<Utc>,
+        forecast_valid_at: DateTime<Utc>,
+        forecast_source_id: &str,
+        context: &ScientificSnapshotContext,
+    ) -> Result<ScientificSnapshotRow, StoreError> {
+        if context.environment.trim().is_empty()
+            || context.application_revision.trim().is_empty()
+            || context.application_image.trim().is_empty()
+            || context.application_image_digest.trim().is_empty()
+        {
+            return Err(StoreError::SnapshotContract(
+                "environment, revision, image tag, and image digest are mandatory".to_owned(),
+            ));
+        }
+        if forecast_source_id.trim().is_empty() {
+            return Err(StoreError::SnapshotContract(
+                "forecast source id is mandatory".to_owned(),
+            ));
+        }
+        let forecast_age = forecast_batch_computed_at - forecast_valid_at;
+        if forecast_age < ChronoDuration::zero() || forecast_age > ChronoDuration::hours(6) {
+            return Err(StoreError::SnapshotContract(format!(
+                "forecast validity is stale or in the future (age {forecast_age})"
+            )));
+        }
+
+        let logical_id = format!(
+            "scientific-daily-dense-nowcast-{}",
+            forecast_valid_at.format("%Y-%m-%d")
+        );
+        if let Some(existing) = self.scientific_snapshot_by_logical_id(&logical_id).await? {
+            if existing.status == "published" {
+                return Ok(existing);
+            }
+            return Err(StoreError::SnapshotContract(format!(
+                "daily dense snapshot {logical_id} already exists with status {}",
+                existing.status
+            )));
+        }
+
+        let static_bundle: Option<(String, i16, i64)> = sqlx::query_as(
+            "SELECT id::text,h3_resolution,cell_count FROM features.feature_snapshots
+             WHERE family='cell_static_bundle' AND status='active'
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        let (static_snapshot_id, resolution_h3, cell_count_expected) =
+            static_bundle.ok_or_else(|| {
+                StoreError::SnapshotContract("no active immutable cell_static_bundle".to_owned())
+            })?;
+        let mask: Option<(String, i64, String)> = sqlx::query_as(
+            "SELECT id::text,expected_cell_count,source_checksum
+             FROM observability.coverage_masks
+             WHERE family='operational_aoi' AND h3_resolution=$1 AND status='published'",
+        )
+        .bind(resolution_h3)
+        .fetch_optional(&self.pool)
+        .await?;
+        let (coverage_mask_id, modelable_cell_count, h3_order_checksum) =
+            mask.ok_or_else(|| {
+                StoreError::SnapshotContract(
+                    "no published operational_aoi coverage mask".to_owned(),
+                )
+            })?;
+        let exact_batch: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM forecast_batches b JOIN forecast_fwi f
+                  ON f.computed_at=b.computed_at AND f.horizon='nowcast'
+                WHERE b.computed_at=$1 AND b.completed_at IS NOT NULL AND f.valid_at=$2
+             )",
+        )
+        .bind(forecast_batch_computed_at)
+        .bind(forecast_valid_at)
+        .fetch_one(&self.pool)
+        .await?;
+        if !exact_batch {
+            return Err(StoreError::SnapshotContract(
+                "exact complete nowcast forecast batch is unavailable".to_owned(),
+            ));
+        }
+
+        let pipeline_run_id: String = sqlx::query_scalar(
+            "INSERT INTO ops.pipeline_runs(
+                id,pipeline_name,pipeline_version,status,started_at,trigger_type,
+                parameters,code_version)
+             VALUES(gen_random_uuid(),'scientific_daily_dense_archive','v1','running',NOW(),
+                    'snapshot',jsonb_build_object('logical_id',$1,'horizon','nowcast'),$2)
+             RETURNING id::text",
+        )
+        .bind(&logical_id)
+        .bind(&context.application_revision)
+        .fetch_one(&self.pool)
+        .await?;
+        let manifest_id: Option<String> = sqlx::query_scalar(
+            "INSERT INTO observability.scientific_snapshots (
+                logical_id,family,snapshot_type,resolution_h3,valid_at,captured_at,
+                source_period_start,source_period_end,application_revision,
+                feature_schema_version,transform_version,source_versions,static_snapshot_id,
+                pipeline_run_id,cell_count_expected,storage_kind,storage_location,status,
+                temporal_classification,contract_version,traceability_status,environment,
+                application_image,application_image_digest,forecast_batch_computed_at,
+                forecast_valid_at,forecast_horizon,coverage_mask_id,modelable_cell_count,
+                structural_exclusion_count,completeness_status
+             ) VALUES (
+                $1,'dynamic_weather_fwi_nowcast','daily_dense',$3,$2,NOW(),$2,$2,$4,
+                'v2','dense-float32-v1',jsonb_build_object(
+                    'forecast_batch_computed_at',$7::text,'forecast_status','complete',
+                    'forecast_horizon','nowcast','forecast_source',$14,
+                    'encoding','float32_be_h3_asc_v1'),
+                $5::uuid,$13::uuid,$6,'postgres_table',
+                'observability.scientific_dense_archives','building',
+                'derived_past_only',2,'complete',$8,$9,$10,$7,$2,'nowcast',$11::uuid,
+                $12,($6-$12),'building'
+             ) ON CONFLICT(logical_id) DO NOTHING RETURNING id::text",
+        )
+        .bind(&logical_id)
+        .bind(forecast_valid_at)
+        .bind(resolution_h3)
+        .bind(&context.application_revision)
+        .bind(&static_snapshot_id)
+        .bind(cell_count_expected)
+        .bind(forecast_batch_computed_at)
+        .bind(&context.environment)
+        .bind(&context.application_image)
+        .bind(&context.application_image_digest)
+        .bind(&coverage_mask_id)
+        .bind(modelable_cell_count)
+        .bind(&pipeline_run_id)
+        .bind(forecast_source_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(manifest_id) = manifest_id else {
+            let concurrent = self
+                .scientific_snapshot_by_logical_id(&logical_id)
+                .await?
+                .ok_or_else(|| StoreError::InvalidPersistedCount(0))?;
+            let (status, error_message) = if concurrent.status == "published" {
+                ("succeeded", None)
+            } else {
+                (
+                    "failed",
+                    Some(format!(
+                        "concurrent snapshot is not yet published (status {})",
+                        concurrent.status
+                    )),
+                )
+            };
+            sqlx::query(
+                "UPDATE ops.pipeline_runs SET status=$2,finished_at=NOW(),error_message=$3,
+                 metrics=jsonb_build_object('result','concurrent_replay') WHERE id=$1::uuid",
+            )
+            .bind(&pipeline_run_id)
+            .bind(status)
+            .bind(error_message.as_deref())
+            .execute(&self.pool)
+            .await?;
+            if let Some(error_message) = error_message {
+                return Err(StoreError::SnapshotContract(error_message));
+            }
+            return Ok(concurrent);
+        };
+
+        let result = self
+            .fill_and_publish_daily_dense_archive(
+                &manifest_id,
+                &coverage_mask_id,
+                &h3_order_checksum,
+                forecast_batch_computed_at,
+                modelable_cell_count,
+            )
+            .await;
+        match result {
+            Ok(snapshot) => {
+                sqlx::query(
+                    "UPDATE ops.pipeline_runs SET status='succeeded',finished_at=NOW(),
+                     metrics=jsonb_build_object('cell_count_present',$2,'packed_bytes',$3)
+                     WHERE id=$1::uuid",
+                )
+                .bind(&pipeline_run_id)
+                .bind(snapshot.cell_count_present)
+                .bind(snapshot.cell_count_present * 4 * 6)
+                .execute(&self.pool)
+                .await?;
+                Ok(snapshot)
+            }
+            Err(error) => {
+                let _ = sqlx::query(
+                    "UPDATE observability.scientific_snapshots
+                     SET status='failed',completeness_status='failed_validation',
+                         metadata=metadata || jsonb_build_object('failure',$2)
+                     WHERE id=$1::uuid AND status<>'published'",
+                )
+                .bind(&manifest_id)
+                .bind(error.to_string())
+                .execute(&self.pool)
+                .await;
+                let _ = sqlx::query(
+                    "UPDATE ops.pipeline_runs SET status='failed',finished_at=NOW(),error_message=$2
+                     WHERE id=$1::uuid",
+                )
+                .bind(&pipeline_run_id)
+                .bind(error.to_string())
+                .execute(&self.pool)
+                .await;
+                Err(error)
+            }
+        }
+    }
+
+    async fn scientific_snapshot_by_logical_id(
+        &self,
+        logical_id: &str,
+    ) -> Result<Option<ScientificSnapshotRow>, StoreError> {
+        let id: Option<String> = sqlx::query_scalar(
+            "SELECT id::text FROM observability.scientific_snapshots WHERE logical_id=$1",
+        )
+        .bind(logical_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        match id {
+            Some(id) => self.get_scientific_snapshot(&id).await,
+            None => Ok(None),
+        }
+    }
+
+    async fn fill_and_publish_daily_dense_archive(
+        &self,
+        manifest_id: &str,
+        coverage_mask_id: &str,
+        h3_order_checksum: &str,
+        forecast_batch_computed_at: DateTime<Utc>,
+        expected_count: i64,
+    ) -> Result<ScientificSnapshotRow, StoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let packed_count: i64 = sqlx::query_scalar(
+            "WITH packed AS (
+                SELECT COUNT(*)::bigint AS h3_count,
+                    string_agg(float4send(f.ffmc::real),''::bytea ORDER BY c.h3) ffmc_values,
+                    string_agg(float4send(f.dmc::real),''::bytea ORDER BY c.h3) dmc_values,
+                    string_agg(float4send(f.dc::real),''::bytea ORDER BY c.h3) dc_values,
+                    string_agg(float4send(f.isi::real),''::bytea ORDER BY c.h3) isi_values,
+                    string_agg(float4send(f.bui::real),''::bytea ORDER BY c.h3) bui_values,
+                    string_agg(float4send(f.fwi::real),''::bytea ORDER BY c.h3) fwi_values
+                FROM observability.coverage_mask_cells c
+                JOIN forecast_fwi f ON f.h3=c.h3 AND f.computed_at=$4
+                    AND f.horizon='nowcast'
+                WHERE c.mask_id=$2::uuid AND c.eligibility='modelable'
+             )
+             INSERT INTO observability.scientific_dense_archives(
+                snapshot_id,coverage_mask_id,h3_count,h3_order_checksum,
+                ffmc_values,dmc_values,dc_values,isi_values,bui_values,fwi_values)
+             SELECT $1::uuid,$2::uuid,h3_count,$3,ffmc_values,dmc_values,dc_values,
+                    isi_values,bui_values,fwi_values FROM packed
+             RETURNING h3_count",
+        )
+        .bind(manifest_id)
+        .bind(coverage_mask_id)
+        .bind(h3_order_checksum)
+        .bind(forecast_batch_computed_at)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if packed_count != expected_count {
+            return Err(StoreError::SnapshotContract(format!(
+                "dense archive contains {packed_count} cells; expected {expected_count}"
+            )));
+        }
+        let checksum: String = sqlx::query_scalar(
+            "SELECT encode(digest(
+                ffmc_values||dmc_values||dc_values||isi_values||bui_values||fwi_values,
+                'sha256'),'hex')
+             FROM observability.scientific_dense_archives WHERE snapshot_id=$1::uuid",
+        )
+        .bind(manifest_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "UPDATE observability.scientific_snapshots SET
+                cell_count_present=$2,missing_count=structural_exclusion_count,
+                unexpected_missing_count=0,complete=true,checksum=$3,
+                completeness_status='complete',status='published',published_at=NOW(),
+                metadata=metadata || jsonb_build_object(
+                    'dense_encoding','float32_be_h3_asc_v1',
+                    'component_count',6,'bytes_per_component',4)
+             WHERE id=$1::uuid AND status='building'",
+        )
+        .bind(manifest_id)
+        .bind(packed_count)
+        .bind(&checksum)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO observability.scientific_snapshot_missing_reasons
+                (snapshot_id,reason,cell_count,classification_version)
+             SELECT id,'outside_operational_aoi',structural_exclusion_count,'coverage-v1'
+             FROM observability.scientific_snapshots
+             WHERE id=$1::uuid AND structural_exclusion_count>0",
+        )
+        .bind(manifest_id)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        self.get_scientific_snapshot(manifest_id)
+            .await?
+            .ok_or_else(|| StoreError::InvalidPersistedCount(0))
+    }
+
     /// Captures (or resumes/no-ops on) the weekly `nowcast`-only
     /// scientific snapshot pilot for `valid_at`'s calendar day. Raw
     /// interpolated weather (temperature/humidity/wind/precipitation)
@@ -1644,6 +1997,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns an error when the manifest or its values cannot be read.
+    #[allow(clippy::too_many_lines)]
     pub async fn verify_scientific_snapshot(
         &self,
         id: &str,
@@ -1652,15 +2006,34 @@ impl Store {
             .get_scientific_snapshot(id)
             .await?
             .ok_or_else(|| StoreError::SnapshotContract(format!("snapshot {id} not found")))?;
-        let (rows, distinct_h3, recomputed): (i64, i64, Option<String>) = sqlx::query_as(
-            "SELECT COUNT(*),COUNT(DISTINCT h3),encode(digest(string_agg(
-                h3::text||':'||coalesce(fwi::text,'null')||':'||data_status,
-                ',' ORDER BY h3),'sha256'),'hex')
-             FROM observability.scientific_snapshot_values WHERE snapshot_id=$1::uuid",
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await?;
+        let (rows, distinct_h3, recomputed, dense_order_valid): (i64, i64, Option<String>, bool) =
+            if snapshot.snapshot_type == "daily_dense" {
+                let dense: Option<(i64, String, bool)> = sqlx::query_as(
+                    "SELECT d.h3_count,encode(digest(
+                        ffmc_values||dmc_values||dc_values||isi_values||bui_values||fwi_values,
+                        'sha256'),'hex'),d.h3_order_checksum=m.source_checksum
+                     FROM observability.scientific_dense_archives d
+                     JOIN observability.coverage_masks m ON m.id=d.coverage_mask_id
+                     WHERE d.snapshot_id=$1::uuid",
+                )
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
+                dense.map_or((0, 0, None, false), |(count, checksum, order_valid)| {
+                    (count, count, Some(checksum), order_valid)
+                })
+            } else {
+                let (rows, distinct_h3, checksum) = sqlx::query_as(
+                    "SELECT COUNT(*),COUNT(DISTINCT h3),encode(digest(string_agg(
+                        h3::text||':'||coalesce(fwi::text,'null')||':'||data_status,
+                        ',' ORDER BY h3),'sha256'),'hex')
+                     FROM observability.scientific_snapshot_values WHERE snapshot_id=$1::uuid",
+                )
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await?;
+                (rows, distinct_h3, checksum, true)
+            };
         let checksum_valid = snapshot.checksum.as_deref() == recomputed.as_deref();
         let unique_h3 = rows == distinct_h3;
         let provenance_complete = snapshot.contract_version == 1
@@ -1672,7 +2045,9 @@ impl Store {
                 && snapshot.forecast_batch_computed_at.is_some()
                 && snapshot.coverage_mask_id.is_some()
                 && snapshot.pipeline_run_id.is_some());
-        let observed_modelable: i64 = if snapshot.contract_version == 2 {
+        let observed_modelable: i64 = if snapshot.snapshot_type == "daily_dense" {
+            rows
+        } else if snapshot.contract_version == 2 {
             sqlx::query_scalar(
                 "SELECT COUNT(*) FROM observability.scientific_snapshot_values v
                  JOIN observability.scientific_snapshots s ON s.id=v.snapshot_id
@@ -1713,6 +2088,9 @@ impl Store {
             }
             if !coverage_consistent {
                 errors.push("coverage denominator is inconsistent".to_owned());
+            }
+            if !dense_order_valid {
+                errors.push("dense archive H3 order does not match its coverage mask".to_owned());
             }
             if snapshot.unexpected_missing_count > 0 {
                 errors.push(format!(
@@ -1784,8 +2162,9 @@ impl Store {
         Ok(())
     }
 
-    /// Links only mature BDIFF events in the snapshot's seven-day outcome
-    /// window and exact H3 cell. FIRMS and synthetic negatives are never read.
+    /// Links only mature BDIFF events in the snapshot's outcome window
+    /// (one day for dense daily archives, seven days for weekly snapshots)
+    /// and exact H3 cell. FIRMS and synthetic negatives are never read.
     /// A dry run performs no write; changed causes supersede rather than erase
     /// prior link history.
     ///
@@ -1800,17 +2179,35 @@ impl Store {
         dry_run: bool,
         limit: i64,
     ) -> Result<DeferredLabelLinkReport, StoreError> {
-        const RULE: &str = "bdiff-exact-h3-week-v1";
+        const WEEKLY_RULE: &str = "bdiff-exact-h3-week-v1";
+        const DAILY_RULE: &str = "bdiff-exact-h3-day-v1";
+        let snapshot = self
+            .get_scientific_snapshot(snapshot_id)
+            .await?
+            .ok_or_else(|| {
+                StoreError::SnapshotContract(format!("snapshot {snapshot_id} not found"))
+            })?;
+        let rule = if snapshot.snapshot_type == "daily_dense" {
+            DAILY_RULE
+        } else {
+            WEEKLY_RULE
+        };
         let examined: Vec<MatureLabelCandidate> = sqlx::query_as(
             "SELECT e.id::text,e.h3,e.occurred_on_local,e.cause_category,
                         e.taxonomy_version,e.updated_at,
-                        EXISTS(SELECT 1 FROM observability.scientific_snapshot_values v
-                               WHERE v.snapshot_id=s.id AND v.h3=e.h3) AS h3_found
+                        (EXISTS(SELECT 1 FROM observability.scientific_snapshot_values v
+                                WHERE v.snapshot_id=s.id AND v.h3=e.h3)
+                         OR (s.snapshot_type='daily_dense' AND EXISTS(
+                                SELECT 1 FROM observability.coverage_mask_cells c
+                                WHERE c.mask_id=s.coverage_mask_id AND c.h3=e.h3
+                                  AND c.eligibility='modelable'))) AS h3_found
                  FROM fire.ignition_events e
                  JOIN observability.scientific_snapshots s ON s.id=$1::uuid
                  WHERE s.status='published' AND e.is_active
                    AND e.occurred_at >= s.valid_at
-                   AND e.occurred_at < s.valid_at + interval '7 days'
+                   AND e.occurred_at < s.valid_at + CASE
+                        WHEN s.snapshot_type='daily_dense' THEN interval '1 day'
+                        ELSE interval '7 days' END
                    AND e.updated_at <= $2
                  ORDER BY e.id LIMIT $3",
         )
@@ -1844,7 +2241,7 @@ impl Store {
                 excluded_from_supervised_labels: unknown_or_indeterminate + h3_absent,
                 inserted_links: 0,
                 superseded_links: 0,
-                rule_version: RULE,
+                rule_version: rule,
             });
         }
 
@@ -1897,7 +2294,7 @@ impl Store {
             .bind(label_class)
             .bind(cause_version)
             .bind(observed_at)
-            .bind(RULE)
+            .bind(rule)
             .bind(supersedes)
             .execute(&mut *transaction)
             .await?;
@@ -1917,7 +2314,7 @@ impl Store {
             excluded_from_supervised_labels: unknown_or_indeterminate + h3_absent,
             inserted_links,
             superseded_links,
-            rule_version: RULE,
+            rule_version: rule,
         })
     }
 }
