@@ -177,6 +177,33 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
             .iter()
             .all(|alert| alert.commune_name == "Saint-Jory")
     );
+    assert_eq!(
+        store
+            .ensure_blue_evidence_cases(&first.id, 20)
+            .await
+            .expect("create top selection"),
+        1
+    );
+    assert_eq!(
+        store
+            .ensure_blue_evidence_cases(&first.id, 20)
+            .await
+            .expect("selection is idempotent"),
+        0
+    );
+    let cases = store
+        .list_blue_evidence_cases(&first.id)
+        .await
+        .expect("list evidence cases");
+    assert_eq!(cases.len(), 1, "+24 h and +48 h share one commune case");
+    assert_eq!(cases[0].daily_rank, 1);
+    assert!(cases[0].alert_24h_id.is_some());
+    assert!(cases[0].alert_48h_id.is_some());
+    assert_eq!(
+        cases[0].research_after,
+        computed_at + Duration::hours(54),
+        "research waits until six hours after the +48 h horizon"
+    );
     let serialized = serde_json::to_value(&first).expect("serialize bulletin");
     assert!(
         serialized.get("forecast_source").is_none(),

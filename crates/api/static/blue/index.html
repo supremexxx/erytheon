@@ -29,20 +29,17 @@
 
         <section class="workspace">
           <aside class="filters">
-            <p class="eyebrow">Échéance</p>
-            <div class="segmented" role="group" aria-label="Échéance">
-              <button class="active" data-horizon="hours_24">+24 h</button>
-              <button data-horizon="hours_48">+48 h</button>
-            </div>
+            <p class="eyebrow">Sélection publique</p>
+            <div class="top-rule"><strong>20 maximum</strong><span>communes uniques, classées par indice BLUE</span></div>
             <label>Rechercher une commune<input id="search" type="search" placeholder="Nom, département, INSEE"></label>
-            <label>Niveau<select id="level"><option value="">Tous</option><option value="critical">Critique</option><option value="elevated">Élevé</option></select></label>
+            <label>Vérification<select id="verdict"><option value="">Toutes</option><option value="pending">En attente</option><option value="confirmed">Confirmé</option><option value="probable">Probable</option><option value="signal_observed">Signal observé</option><option value="inconclusive">Non concluant</option><option value="no_evidence_found">Aucune preuve trouvée</option></select></label>
             <div class="method"><strong>Lecture honnête</strong><p>L’indice BLUE mesure une vigilance relative. Il ne constitue pas une probabilité certaine de départ de feu.</p></div>
           </aside>
 
           <section class="ledger">
-            <div class="section-head"><div><p class="eyebrow">Registre des prévisions</p><h2 id="ledger-title">Échéance +24 h</h2></div><span id="visible-count">—</span></div>
+            <div class="section-head"><div><p class="eyebrow">Prévisions à démontrer</p><h2>Top 20 quotidien</h2></div><span id="visible-count">—</span></div>
             <div id="empty" class="empty" hidden>Aucune vigilance ne correspond aux filtres.</div>
-            <div class="table-wrap"><table><thead><tr><th>Commune</th><th>Indice BLUE</th><th>Maximum</th><th>Cellules élevées</th><th>Échéance</th><th>Vérification</th></tr></thead><tbody id="alerts"></tbody></table></div>
+            <div class="table-wrap"><table><thead><tr><th>Rang</th><th>Commune</th><th>BLUE +24 h</th><th>BLUE +48 h</th><th>Vérification</th><th>Preuves</th></tr></thead><tbody id="cases"></tbody></table></div>
           </section>
         </section>
 

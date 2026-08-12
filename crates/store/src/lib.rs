@@ -20,7 +20,10 @@ mod quality;
 mod science;
 
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
-pub use blue::{BlueForecastAlertRow, BlueForecastBulletinRow, BlueForecastContext};
+pub use blue::{
+    BlueEvidenceCaseRow, BlueEvidenceClaim, BlueEvidenceResult, BlueEvidenceSourceInput,
+    BlueForecastAlertRow, BlueForecastBulletinRow, BlueForecastContext,
+};
 pub use commune::{CommuneBoundary, CommuneCatalogEntry};
 pub use dataset::{
     AnyCauseEventForNegativeDesign, CalendarDayLookup, CalendarRuleVersion, DatasetBuildCounts,

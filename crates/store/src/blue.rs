@@ -66,6 +66,78 @@ pub struct BlueForecastAlertRow {
     pub evidence_count: i64,
 }
 
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
+pub struct BlueEvidenceCaseRow {
+    pub id: String,
+    pub bulletin_id: String,
+    pub bulletin_date: NaiveDate,
+    pub insee_code: String,
+    pub commune_name: String,
+    pub department_code: Option<String>,
+    pub daily_rank: i16,
+    pub selection_score: f32,
+    pub alert_24h_id: Option<String>,
+    pub alert_24h_index: Option<f32>,
+    pub alert_24h_valid_at: Option<DateTime<Utc>>,
+    pub alert_48h_id: Option<String>,
+    pub alert_48h_index: Option<f32>,
+    pub alert_48h_valid_at: Option<DateTime<Utc>>,
+    pub research_after: DateTime<Utc>,
+    pub status: String,
+    pub verdict: String,
+    pub confidence: Option<f32>,
+    pub summary: Option<String>,
+    pub observed_event_at: Option<DateTime<Utc>>,
+    pub observed_location: Option<String>,
+    pub model: Option<String>,
+    pub attempt_count: i16,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub sources: Value,
+}
+
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct BlueEvidenceClaim {
+    pub id: String,
+    pub bulletin_id: String,
+    pub bulletin_date: NaiveDate,
+    pub issued_at: DateTime<Utc>,
+    pub insee_code: String,
+    pub commune_name: String,
+    pub department_code: Option<String>,
+    pub daily_rank: i16,
+    pub selection_score: f32,
+    pub alert_24h_index: Option<f32>,
+    pub alert_24h_valid_at: Option<DateTime<Utc>>,
+    pub alert_48h_index: Option<f32>,
+    pub alert_48h_valid_at: Option<DateTime<Utc>>,
+    pub attempt_count: i16,
+}
+
+#[derive(Clone, Debug)]
+pub struct BlueEvidenceSourceInput {
+    pub url: String,
+    pub title: String,
+    pub published_at: Option<DateTime<Utc>>,
+    pub excerpt: Option<String>,
+    pub domain: String,
+    pub relation_strength: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct BlueEvidenceResult {
+    pub verdict: String,
+    pub confidence: f32,
+    pub summary: String,
+    pub observed_event_at: Option<DateTime<Utc>>,
+    pub observed_location: Option<String>,
+    pub response_id: String,
+    pub raw_response: Value,
+    pub input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub web_search_count: i64,
+    pub sources: Vec<BlueEvidenceSourceInput>,
+}
+
 const BULLETIN_COLUMNS: &str = "id::text,logical_id,bulletin_date,scheduled_for,issued_at,
      forecast_batch_computed_at,forecast_source,model_version_id,application_revision,
      forecast_cell_count,mapped_cell_count,unmapped_cell_count,commune_count,
@@ -440,5 +512,264 @@ impl Store {
         .fetch_optional(&self.pool)
         .await
         .map_err(StoreError::from)
+    }
+
+    /// Ensures the deterministic, unique top-commune selection for a bulletin.
+    /// The full alert and forecast archives are deliberately left untouched.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error when the selection cannot be persisted.
+    pub async fn ensure_blue_evidence_cases(
+        &self,
+        bulletin_id: &str,
+        limit: i64,
+    ) -> Result<u64, StoreError> {
+        let result = sqlx::query(
+            "WITH per_commune AS (
+                SELECT a.bulletin_id,a.insee_code,MAX(a.commune_name) commune_name,
+                    MAX(a.department_code) department_code,MAX(a.alert_index) selection_score,
+                    (array_agg(a.id ORDER BY a.alert_index DESC)
+                        FILTER (WHERE a.horizon='hours_24'))[1] alert_24h_id,
+                    (array_agg(a.id ORDER BY a.alert_index DESC)
+                        FILTER (WHERE a.horizon='hours_48'))[1] alert_48h_id,
+                    MAX(a.valid_at) research_anchor
+                FROM blue.forecast_alerts a
+                WHERE a.bulletin_id=$1::uuid
+                GROUP BY a.bulletin_id,a.insee_code
+             ), ranked AS (
+                SELECT *,ROW_NUMBER() OVER (
+                    ORDER BY selection_score DESC,commune_name,insee_code
+                ) daily_rank
+                FROM per_commune
+             )
+             INSERT INTO blue.evidence_cases(
+                bulletin_id,insee_code,commune_name,department_code,daily_rank,
+                selection_score,alert_24h_id,alert_48h_id,research_after)
+             SELECT bulletin_id,insee_code,commune_name,department_code,daily_rank,
+                selection_score,alert_24h_id,alert_48h_id,research_anchor + INTERVAL '6 hours'
+             FROM ranked WHERE daily_rank <= $2
+             ON CONFLICT(bulletin_id,insee_code) DO NOTHING",
+        )
+        .bind(bulletin_id)
+        .bind(limit.clamp(1, 20))
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Lists the selected evidence cases and their cited sources.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error when the cases cannot be read.
+    pub async fn list_blue_evidence_cases(
+        &self,
+        bulletin_id: &str,
+    ) -> Result<Vec<BlueEvidenceCaseRow>, StoreError> {
+        sqlx::query_as(
+            "SELECT c.id::text,c.bulletin_id::text,b.bulletin_date,c.insee_code,
+                c.commune_name,c.department_code,c.daily_rank,c.selection_score,
+                a24.id::text alert_24h_id,a24.alert_index alert_24h_index,
+                a24.valid_at alert_24h_valid_at,a48.id::text alert_48h_id,
+                a48.alert_index alert_48h_index,a48.valid_at alert_48h_valid_at,
+                c.research_after,c.status,c.verdict,c.confidence,c.summary,
+                c.observed_event_at,c.observed_location,c.model,c.attempt_count,c.completed_at,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                    'url',s.url,'title',s.title,'published_at',s.published_at,
+                    'excerpt',s.excerpt,'domain',s.domain,
+                    'relation_strength',s.relation_strength) ORDER BY s.id)
+                 FROM blue.evidence_runs r JOIN blue.evidence_sources s ON s.run_id=r.id
+                 WHERE r.case_id=c.id),'[]'::jsonb) sources
+             FROM blue.evidence_cases c
+             JOIN blue.forecast_bulletins b ON b.id=c.bulletin_id
+             LEFT JOIN blue.forecast_alerts a24 ON a24.id=c.alert_24h_id
+             LEFT JOIN blue.forecast_alerts a48 ON a48.id=c.alert_48h_id
+             WHERE c.bulletin_id=$1::uuid ORDER BY c.daily_rank",
+        )
+        .bind(bulletin_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    /// Atomically claims one due evidence case for the automatic reviewer.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error when a due case cannot be claimed.
+    pub async fn claim_blue_evidence_case(&self) -> Result<Option<BlueEvidenceClaim>, StoreError> {
+        sqlx::query_as(
+            "WITH due AS (
+                SELECT id FROM blue.evidence_cases
+                WHERE status IN ('pending','retry_due') AND attempt_count < 2
+                  AND COALESCE(next_attempt_at,research_after) <= NOW()
+                ORDER BY COALESCE(next_attempt_at,research_after),daily_rank
+                FOR UPDATE SKIP LOCKED LIMIT 1
+             ), claimed AS (
+                UPDATE blue.evidence_cases c SET status='researching',
+                    attempt_count=c.attempt_count+1,last_attempt_at=NOW(),updated_at=NOW()
+                FROM due WHERE c.id=due.id RETURNING c.*
+             )
+             SELECT c.id::text,c.bulletin_id::text,b.bulletin_date,b.issued_at,
+                c.insee_code,c.commune_name,c.department_code,c.daily_rank,c.selection_score,
+                a24.alert_index alert_24h_index,a24.valid_at alert_24h_valid_at,
+                a48.alert_index alert_48h_index,a48.valid_at alert_48h_valid_at,
+                c.attempt_count
+             FROM claimed c JOIN blue.forecast_bulletins b ON b.id=c.bulletin_id
+             LEFT JOIN blue.forecast_alerts a24 ON a24.id=c.alert_24h_id
+             LEFT JOIN blue.forecast_alerts a48 ON a48.id=c.alert_48h_id",
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    /// Starts one append-only evidence run after a case has been claimed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error when the audit run cannot be created.
+    pub async fn start_blue_evidence_run(
+        &self,
+        case_id: &str,
+        attempt_no: i16,
+        request_checksum: &str,
+        model: &str,
+    ) -> Result<String, StoreError> {
+        sqlx::query_scalar(
+            "INSERT INTO blue.evidence_runs(case_id,attempt_no,request_checksum,model)
+             VALUES($1::uuid,$2,$3,$4) RETURNING id::text",
+        )
+        .bind(case_id)
+        .bind(attempt_no)
+        .bind(request_checksum)
+        .bind(model)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(StoreError::from)
+    }
+
+    /// Persists a completed review, its raw audit payload and cited sources.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error when the result transaction cannot be committed.
+    pub async fn complete_blue_evidence_run(
+        &self,
+        case_id: &str,
+        run_id: &str,
+        model: &str,
+        result: &BlueEvidenceResult,
+    ) -> Result<(), StoreError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "UPDATE blue.evidence_runs SET response_id=$2,status='completed',raw_response=$3,
+                input_tokens=$4,output_tokens=$5,web_search_count=$6,completed_at=NOW()
+             WHERE id=$1::uuid AND status='started'",
+        )
+        .bind(run_id)
+        .bind(&result.response_id)
+        .bind(&result.raw_response)
+        .bind(result.input_tokens)
+        .bind(result.output_tokens)
+        .bind(result.web_search_count)
+        .execute(&mut *tx)
+        .await?;
+        for source in &result.sources {
+            sqlx::query(
+                "INSERT INTO blue.evidence_sources(
+                    run_id,url,title,published_at,excerpt,domain,relation_strength)
+                 VALUES($1::uuid,$2,$3,$4,$5,$6,$7) ON CONFLICT(run_id,url) DO NOTHING",
+            )
+            .bind(run_id)
+            .bind(&source.url)
+            .bind(&source.title)
+            .bind(source.published_at)
+            .bind(&source.excerpt)
+            .bind(&source.domain)
+            .bind(&source.relation_strength)
+            .execute(&mut *tx)
+            .await?;
+        }
+        let retry = result.verdict == "no_evidence_found";
+        sqlx::query(
+            "UPDATE blue.evidence_cases SET status=CASE
+                    WHEN $9 AND attempt_count < 2 THEN 'retry_due' ELSE 'reviewed' END,
+                verdict=$2,confidence=$3,summary=$4,observed_event_at=$5,
+                observed_location=$6,response_id=$7,model=$8,
+                next_attempt_at=CASE WHEN $9 AND attempt_count < 2
+                    THEN NOW()+INTERVAL '72 hours' ELSE NULL END,
+                completed_at=CASE WHEN $9 AND attempt_count < 2 THEN NULL ELSE NOW() END,
+                updated_at=NOW() WHERE id=$1::uuid AND status='researching'",
+        )
+        .bind(case_id)
+        .bind(&result.verdict)
+        .bind(result.confidence)
+        .bind(&result.summary)
+        .bind(result.observed_event_at)
+        .bind(&result.observed_location)
+        .bind(&result.response_id)
+        .bind(model)
+        .bind(retry)
+        .execute(&mut *tx)
+        .await?;
+        let evaluation_status = match result.verdict.as_str() {
+            "confirmed" => "confirmed",
+            "probable" => "probable",
+            "signal_observed" => "signal_observed",
+            _ => "inconclusive",
+        };
+        sqlx::query(
+            "UPDATE blue.forecast_evaluations e SET status=$2,
+                observed_event_at=$3,evidence_count=$4,reviewer_note=$5,
+                reviewed_at=NOW(),updated_at=NOW()
+             FROM blue.evidence_cases c
+             WHERE c.id=$1::uuid AND e.alert_id IN (c.alert_24h_id,c.alert_48h_id)",
+        )
+        .bind(case_id)
+        .bind(evaluation_status)
+        .bind(result.observed_event_at)
+        .bind(i64::try_from(result.sources.len()).unwrap_or(i64::MAX))
+        .bind(&result.summary)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Records a sanitized reviewer failure and schedules one bounded retry.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error when the failed run cannot be recorded.
+    pub async fn fail_blue_evidence_run(
+        &self,
+        case_id: &str,
+        run_id: &str,
+        error: &str,
+    ) -> Result<(), StoreError> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "UPDATE blue.evidence_runs SET status='failed',error=$2,completed_at=NOW()
+             WHERE id=$1::uuid AND status='started'",
+        )
+        .bind(run_id)
+        .bind(error.chars().take(500).collect::<String>())
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE blue.evidence_cases SET
+                status=CASE WHEN attempt_count < 2 THEN 'retry_due' ELSE 'failed' END,
+                verdict=CASE WHEN attempt_count < 2 THEN verdict ELSE 'inconclusive' END,
+                next_attempt_at=CASE WHEN attempt_count < 2 THEN NOW()+INTERVAL '6 hours' ELSE NULL END,
+                completed_at=CASE WHEN attempt_count < 2 THEN NULL ELSE NOW() END,updated_at=NOW()
+             WHERE id=$1::uuid AND status='researching'",
+        )
+        .bind(case_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
     }
 }

@@ -1,5 +1,6 @@
 mod backtest;
 mod bdiff_pipeline;
+mod blue_evidence;
 mod candidate_artifact;
 mod candidate_load_verification;
 mod candidate_pipeline;
