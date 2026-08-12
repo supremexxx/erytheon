@@ -1,4 +1,4 @@
-# Runbook — Snapshots d'observabilité (Phase 4A.6)
+# Runbook — Snapshots d'observabilité et archive scientifique quotidienne
 
 ## 1. Cadence automatique
 
@@ -6,11 +6,17 @@
 |---|---|---|
 | `snapshot_operational_hourly` | toutes les heures | `crates/engine/src/scheduler.rs::snapshot_operational_hourly` |
 | `snapshot_operational_daily` | 02:15 UTC | `crates/engine/src/scheduler.rs::snapshot_operational_daily` |
-| `snapshot_scientific_weekly` | lundi 03:00 UTC | `crates/engine/src/scheduler.rs::snapshot_scientific_weekly` |
+| archive scientifique `daily_dense` | premier nowcast complet de chaque date UTC | déclenchée à la fin de `poll_forecast` |
 
-Ces trois jobs démarrent automatiquement avec `pyrorisk run` (via `scheduler::spawn`). Une panne
+Les jobs démarrent automatiquement avec `pyrorisk run` (via `scheduler::spawn`). Une panne
 de capture est journalisée (`tracing::error!`) et **ne fait jamais tomber l'application
 principale** — la boucle continue au tick suivant.
+
+L'archive scientifique contient les six composantes FWI de toutes les cellules modélisables,
+rangées selon le masque H3 immuable. La première prévision complète de la journée gagne ; les
+cycles suivants retrouvent le même snapshot sans dupliquer les données. Une source inconnue, une
+prévision vieille de plus de six heures ou une cellule absente bloque la publication. Le pilote
+hebdomadaire historique reste utilisable manuellement, mais n'est plus planifié automatiquement.
 
 ## 2. Commandes manuelles
 
@@ -68,11 +74,12 @@ Si un job de snapshot échoue de façon répétée :
    snapshot — les deux systèmes sont indépendants (le scheduler lance ces jobs comme des tâches
    `tokio::spawn` distinctes de `poll_firms`/`poll_forecast`).
 
-## 5. Rollback des migrations 4A.5–4A.6
+## 5. Rollback des migrations
 
 Ordre strict, chaque script refuse s'il existe des données ou si l'ordre est violé :
 
 ```text
+0024_daily_dense_scientific_archive.down.sql
 0022_scientific_snapshot_hardening.down.sql
 0021_snapshot_label_links.down.sql
 0020_snapshot_alerts.down.sql
@@ -80,7 +87,8 @@ Ordre strict, chaque script refuse s'il existe des données ou si l'ordre est vi
 0018_observability_foundation.down.sql
 ```
 
-Le rollback 0022 refuse dès qu'une tentative, un bundle, un masque ou un manifeste v2 existe.
+Le rollback 0024 refuse dès qu'une archive dense existe. Le rollback 0022 refuse dès qu'une
+tentative, un bundle, un masque ou un manifeste v2 existe.
 Après ce point, conserver les données et effectuer un retour applicatif plutôt qu'un effacement.
 
 Ne jamais exécuter avec `psql -f` sans transaction explicite — chaque script contient déjà son

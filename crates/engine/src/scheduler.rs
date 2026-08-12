@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{Datelike, Duration as ChronoDuration, Utc, Weekday};
+use chrono::{Duration as ChronoDuration, Utc};
 use grid::H3Grid;
 use ingest::{
     Cadence, FetchCtx, Source,
@@ -20,17 +20,12 @@ use crate::{config::Config, firms_pipeline, forecast, territory::Territory};
 
 const FORECAST_POLL_INTERVAL: Duration = Duration::from_hours(1);
 const DAY: Duration = Duration::from_hours(24);
-const WEEK: Duration = Duration::from_hours(24 * 7);
 /// 02:15 UTC: chosen to fall well outside `poll_forecast`'s on-the-hour
 /// runs, the FIRMS poll window, and the documented VPS backup timers
 /// (`deploy/oracle/systemd/pyrorisk-*.timer`), per
 /// `PHASE4A5_SNAPSHOT_ARCHITECTURE_DECISION.md` §12 of the phase spec.
 const DAILY_SNAPSHOT_HOUR_UTC: u32 = 2;
 const DAILY_SNAPSHOT_MINUTE_UTC: u32 = 15;
-/// Monday, immediately after the daily snapshot slot: the weekly
-/// scientific pilot piggybacks on a day already known to be quiet.
-const WEEKLY_SNAPSHOT_WEEKDAY: Weekday = Weekday::Mon;
-const WEEKLY_SNAPSHOT_HOUR_UTC: u32 = 3;
 /// Matches `snapshot_pipeline::ENVIRONMENT`: this pilot runs a single
 /// environment bucket. A multi-environment deployment would need this
 /// sourced from configuration instead of duplicated as a constant.
@@ -54,8 +49,10 @@ pub fn spawn(
         updates,
     ));
     tokio::spawn(snapshot_operational_hourly(store.clone()));
-    tokio::spawn(snapshot_operational_daily(store.clone()));
-    tokio::spawn(snapshot_scientific_weekly(store));
+    tokio::spawn(snapshot_operational_daily(store));
+    // Scientific FWI history is archived directly after the first complete
+    // nowcast of each UTC day. The legacy weekly full-row pilot remains
+    // available through controlled tooling but is no longer scheduled.
 }
 
 async fn poll_firms(config: Config, store: Store, grid: H3Grid) {
@@ -88,6 +85,7 @@ async fn poll_firms(config: Config, store: Store, grid: H3Grid) {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn poll_forecast(
     config: Config,
     store: Store,
@@ -169,6 +167,26 @@ async fn poll_forecast(
                         clear_stale_error(&store, source_id).await;
                     }
                 }
+                match store
+                    .capture_daily_dense_scientific_snapshot(
+                        summary.computed_at,
+                        summary.base_valid_at,
+                        summary.source_id,
+                    )
+                    .await
+                {
+                    Ok(snapshot) => tracing::info!(
+                        snapshot_id = %snapshot.id,
+                        valid_at = %snapshot.valid_at,
+                        cells = snapshot.cell_count_present,
+                        "daily dense scientific archive available"
+                    ),
+                    Err(error) => tracing::error!(
+                        %error,
+                        computed_at = %summary.computed_at,
+                        "daily dense scientific archive failed; operational forecast remains published"
+                    ),
+                }
                 tracing::info!(
                     source = summary.source_id,
                     computed_at = %summary.computed_at,
@@ -248,28 +266,6 @@ fn duration_until_next_utc_time(hour: u32, minute: u32) -> Duration {
         .unwrap_or(Duration::from_secs(0))
 }
 
-/// Duration until the next occurrence of `weekday` at `hour:00` UTC.
-fn duration_until_next_utc_weekday(weekday: Weekday, hour: u32) -> Duration {
-    duration_until_next_utc_weekday_from(Utc::now(), weekday, hour)
-}
-
-fn duration_until_next_utc_weekday_from(
-    now: chrono::DateTime<Utc>,
-    weekday: Weekday,
-    hour: u32,
-) -> Duration {
-    let mut candidate = now
-        .date_naive()
-        .and_hms_opt(hour, 0, 0)
-        .expect("valid hour constant");
-    while candidate.weekday() != weekday || candidate <= now.naive_utc() {
-        candidate += ChronoDuration::days(1);
-    }
-    (candidate - now.naive_utc())
-        .to_std()
-        .unwrap_or(Duration::from_secs(0))
-}
-
 async fn capture_operational_snapshot(store: &Store, cadence: &str) {
     let ctx = SystemSnapshotContext {
         application_revision: std::env::var("ERYTHEON_GIT_REVISION")
@@ -333,53 +329,5 @@ async fn snapshot_operational_daily(store: Store) {
     loop {
         capture_operational_snapshot(&store, "daily").await;
         ticker.tick().await;
-    }
-}
-
-async fn snapshot_scientific_weekly(store: Store) {
-    tokio::time::sleep(duration_until_next_utc_weekday(
-        WEEKLY_SNAPSHOT_WEEKDAY,
-        WEEKLY_SNAPSHOT_HOUR_UTC,
-    ))
-    .await;
-    let mut ticker = interval(WEEK);
-    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    loop {
-        match store.capture_weekly_scientific_snapshot(Utc::now()).await {
-            Ok(snapshot) => {
-                tracing::info!(
-                    snapshot_id = %snapshot.id,
-                    status = %snapshot.status,
-                    cell_count_present = snapshot.cell_count_present,
-                    missing_count = snapshot.missing_count,
-                    "scientific snapshot pilot captured"
-                );
-            }
-            Err(error) => {
-                tracing::error!(%error, "scientific snapshot capture failed; continuing");
-            }
-        }
-        ticker.tick().await;
-    }
-}
-
-#[cfg(test)]
-mod snapshot_schedule_tests {
-    use chrono::{TimeZone as _, Utc, Weekday};
-
-    use super::duration_until_next_utc_weekday_from;
-
-    #[test]
-    fn weekly_snapshot_targets_monday_0300_utc() {
-        let friday = Utc.with_ymd_and_hms(2026, 7, 31, 13, 42, 0).unwrap();
-        let delay = duration_until_next_utc_weekday_from(friday, Weekday::Mon, 3);
-        assert_eq!(delay.as_secs(), 61 * 3600 + 18 * 60);
-    }
-
-    #[test]
-    fn restart_after_monday_slot_targets_next_week_without_double_fire() {
-        let after_slot = Utc.with_ymd_and_hms(2026, 8, 3, 3, 0, 1).unwrap();
-        let delay = duration_until_next_utc_weekday_from(after_slot, Weekday::Mon, 3);
-        assert_eq!(delay.as_secs(), 7 * 24 * 3600 - 1);
     }
 }

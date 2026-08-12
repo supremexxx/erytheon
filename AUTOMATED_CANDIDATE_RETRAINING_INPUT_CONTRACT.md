@@ -8,9 +8,10 @@ décision humaine séparée, conformément à `MODEL_PROMOTION_PLAN.md` et au ve
 ## 1. Familles de snapshots consommées
 
 - `observability.scientific_snapshots` (contrat v2, statut `published`,
-  `completeness_status = 'complete'` et vérification stricte valide uniquement) et
-  `observability.scientific_snapshot_values` pour les caractéristiques dynamiques (FWI ; météo
-  brute absente dans ce pilote, voir `PHASE4A5_SCIENTIFIC_SNAPSHOT_REPORT.md` §2).
+  `completeness_status = 'complete'` et vérification stricte valide uniquement), avec
+  `observability.scientific_dense_archives` pour l'historique quotidien compact ou
+  `observability.scientific_snapshot_values` pour les anciens snapshots hebdomadaires. La météo
+  brute reste absente ; les archives quotidiennes conservent les six composantes FWI dérivées.
 - `features.feature_snapshots` (statut `active`) et `features.feature_snapshot_values` pour le
   bundle statique immuable référencé par `static_snapshot_id`.
 - `ml.snapshot_label_links` pour les causes BDIFF différées, avec `matching_rule_version`,
@@ -37,6 +38,8 @@ Les causes BDIFF arrivent après le fait ; un candidat futur devra définir un d
 minimal (ex. N mois après `event_date`) avant qu'un événement soit considéré comme définitivement
 étiqueté, pour éviter d'entraîner sur des causes encore susceptibles de révision. Ce délai n'est
 pas fixé par la présente phase — à spécifier et justifier scientifiquement avant implémentation.
+En conséquence, le rattachement des labels reste une opération manuelle précédée d'un dry-run ;
+aucun scheduler ne l'exécute automatiquement et aucune absence d'événement n'est fabriquée.
 
 ## 4. Éviter la fuite temporelle
 
