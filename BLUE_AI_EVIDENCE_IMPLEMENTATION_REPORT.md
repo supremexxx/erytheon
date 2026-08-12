@@ -27,8 +27,14 @@ Le fournisseur des données de prévision reste absent de l'API BLUE. Les source
 - formatage Rust : validé ;
 - Clippy workspace, toutes cibles et fonctionnalités, avertissements interdits : validé ;
 - tests unitaires du parseur et des rétrogradations de verdict : validés ;
-- tests d'intégration locaux : bloqués par l'ancienne base PostgreSQL locale inaccessible, à rejouer dans une base isolée avant déploiement ;
-- validation navigateur et production : à compléter pendant le déploiement contrôlé.
+- tests d'intégration locaux dépendant de l'ancienne base : indisponibles, car cette base locale ne répond pas ;
+- migration 0026 et rollback à vide : validés sur une base temporaire isolée du VPS ;
+- production : migration 26 appliquée, conteneur sain, vingt dossiers et vingt codes INSEE uniques ;
+- navigateur réel : desktop et mobile validés, aucune erreur ni alerte console ;
+- sécurité : `/blue` et `/api/blue/*` répondent `401` sans authentification, les mutations API répondent `405` ;
+- sauvegarde pré-déploiement : dump restaurable et empreinte SHA-256 validée.
+
+L'automatisation OpenAI reste volontairement désactivée en production tant qu'aucune clé API n'est installée. La sélection, l'archive, l'interface et le worker sont déployés et prêts à être activés uniquement par configuration.
 
 ## Limite restante
 
