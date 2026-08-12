@@ -4,52 +4,82 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex,nofollow">
-    <title>BLUE — Forecast & Evidence Center</title>
+    <meta name="theme-color" content="#111715">
+    <title>BLUE — Prévisions quotidiennes</title>
     <link rel="icon" href="data:,">
     <link rel="stylesheet" href="/blue.css">
   </head>
   <body>
-    <div class="shell">
-      <header class="topbar">
-        <div class="brand"><span class="mark">B</span><div><strong>BLUE</strong><small>Forecast & Evidence Center</small></div></div>
-        <div class="top-meta"><span><i class="dot"></i> Registre privé</span><time id="clock">—</time></div>
+    <div class="app-shell">
+      <header class="masthead">
+        <a class="brand" href="/" aria-label="BLUE, accueil"><i aria-hidden="true"></i><strong>BLUE</strong></a>
+        <div class="edition"><span>Prévisions quotidiennes</span><b id="bulletin-date">Chargement…</b><em><i></i> bulletin actif</em></div>
+        <div class="tools">
+          <label class="search"><span>Rechercher une commune</span><input id="search" type="search" placeholder="Commune, département ou INSEE" autocomplete="off"></label>
+          <label class="status-filter"><span>Validation</span><select id="verdict"><option value="">Tous les états</option><option value="pending">En attente</option><option value="confirmed">Confirmé</option><option value="probable">Probable</option><option value="signal_observed">Signal observé</option><option value="inconclusive">Non concluant</option><option value="no_evidence_found">Aucune preuve</option></select></label>
+          <details class="archives"><summary>Archives</summary><div id="bulletins"></div></details>
+          <button id="refresh" class="refresh" type="button" aria-label="Actualiser les données"><i></i></button>
+        </div>
       </header>
-      <main>
-        <section class="hero">
-          <div><p class="eyebrow">Bulletin quotidien immuable</p><h1>Vigilance incendie territoriale</h1><p id="interpretation">Chargement du dernier bulletin BLUE…</p></div>
-          <div class="seal"><span>Prévision figée</span><strong id="bulletin-date">—</strong><small id="bulletin-checksum">Empreinte en attente</small></div>
-        </section>
 
-        <section class="metrics" aria-label="Synthèse">
-          <article><span>Communes évaluées</span><strong id="commune-count">—</strong><small id="coverage">Couverture en attente</small></article>
-          <article><span>Vigilances +24 h</span><strong id="count-24">—</strong><small>Indice p95 ≥ 0,65</small></article>
-          <article><span>Vigilances +48 h</span><strong id="count-48">—</strong><small>Indice p95 ≥ 0,65</small></article>
-          <article><span>Version BLUE</span><strong id="model-version">—</strong><small id="issued-at">Émission en attente</small></article>
-        </section>
-
-        <section class="workspace">
-          <aside class="filters">
-            <p class="eyebrow">Sélection publique</p>
-            <div class="top-rule"><strong>20 maximum</strong><span>communes uniques, classées par indice BLUE</span></div>
-            <label>Rechercher une commune<input id="search" type="search" placeholder="Nom, département, INSEE"></label>
-            <label>Vérification<select id="verdict"><option value="">Toutes</option><option value="pending">En attente</option><option value="confirmed">Confirmé</option><option value="probable">Probable</option><option value="signal_observed">Signal observé</option><option value="inconclusive">Non concluant</option><option value="no_evidence_found">Aucune preuve trouvée</option></select></label>
-            <div class="method"><strong>Lecture honnête</strong><p>L’indice BLUE mesure une vigilance relative. Il ne constitue pas une probabilité certaine de départ de feu.</p></div>
-          </aside>
-
-          <section class="ledger">
-            <div class="section-head"><div><p class="eyebrow">Prévisions à démontrer</p><h2>Top 20 quotidien</h2></div><span id="visible-count">—</span></div>
-            <div id="empty" class="empty" hidden>Aucune vigilance ne correspond aux filtres.</div>
-            <div class="table-wrap"><table><thead><tr><th>Rang</th><th>Commune</th><th>BLUE +24 h</th><th>BLUE +48 h</th><th>Vérification</th><th>Preuves</th></tr></thead><tbody id="cases"></tbody></table></div>
+      <main class="workspace">
+        <aside class="case-sheet" aria-live="polite">
+          <header class="sheet-head"><span id="detail-rank">SIGNAL —</span><span class="case-state" id="detail-status">En attente</span></header>
+          <section class="case-identity">
+            <strong id="selected-score">—</strong>
+            <div><span>indice maximal</span><h1 id="detail-name">Chargement…</h1><p id="selected-location">Sélection quotidienne</p></div>
           </section>
-        </section>
+          <section class="horizons" aria-label="Prévisions à 24 et 48 heures">
+            <article><span>+24 H</span><strong id="selected-24">—</strong><time id="detail-valid-24">—</time></article>
+            <article><span>+48 H</span><strong id="selected-48">—</strong><time id="detail-valid-48">—</time></article>
+          </section>
+          <section class="case-meta">
+            <dl><div><dt>INSEE</dt><dd id="detail-insee">—</dd></div><div><dt>Département</dt><dd id="detail-department">—</dd></div><div><dt>Vérification</dt><dd id="detail-research">—</dd></div><div><dt>Confiance</dt><dd id="detail-confidence">—</dd></div></dl>
+          </section>
+          <section class="evidence">
+            <span>Vérifications après échéance</span>
+            <h2>Ce qui a réellement été observé</h2>
+            <article class="evidence-stage">
+              <header><strong>Après +24 h</strong><span id="evidence-24-status">En attente</span></header>
+              <p id="evidence-24-summary">Premier constat disponible dès le lendemain.</p>
+              <div id="evidence-24-sources"></div>
+            </article>
+            <article class="evidence-stage">
+              <header><strong>Après +48 h</strong><span id="evidence-48-status">À venir</span></header>
+              <p id="evidence-48-summary">Validation finale après la seconde échéance.</p>
+              <div id="evidence-48-sources"></div>
+            </article>
+          </section>
+          <footer><span>Lecture correcte</span><p>BLUE classe un niveau de vigilance. Un score élevé n’est jamais une certitude de départ de feu.</p></footer>
+        </aside>
 
-        <section class="archive">
-          <div class="section-head"><div><p class="eyebrow">Traçabilité</p><h2>Éditions précédentes</h2></div><span>Lecture seule</span></div>
-          <div id="bulletins" class="archive-grid"></div>
+        <section class="risk-field">
+          <header class="field-head">
+            <div><span>CHAMP TEMPOREL · TOP 20</span><h2>Comment le risque évolue-t-il ?</h2><p>Chaque trajectoire relie la même commune entre +24 h et +48 h.</p></div>
+            <div class="field-legend"><span><i class="l24"></i>+24 h</span><span><i class="l48"></i>+48 h</span><b id="visible-count">—</b></div>
+          </header>
+
+          <div class="canvas-wrap">
+            <canvas id="risk-canvas" aria-label="Trajectoires des indices de risque à 24 et 48 heures"></canvas>
+            <div id="canvas-empty" class="canvas-empty" hidden>Aucune commune ne correspond à cette recherche.</div>
+          </div>
+
+          <section class="ranking">
+            <header><span>Sélection du bulletin</span><small>Choisir une commune pour ouvrir son dossier</small></header>
+            <div id="rank-strip"></div>
+          </section>
+
+          <footer class="metrics">
+            <article><span>Territoire analysé</span><strong id="commune-count">—</strong><small>communes</small></article>
+            <article><span>Signaux +24 h</span><strong id="count-24">—</strong><small>au-dessus du seuil</small></article>
+            <article><span>Signaux +48 h</span><strong id="count-48">—</strong><small>au-dessus du seuil</small></article>
+            <article><span>Modèle en service</span><strong id="model-version">—</strong><small id="issued-at">—</small></article>
+            <article><span>Prochaine vérification</span><strong id="next-review">—</strong><small>automatique</small></article>
+          </footer>
         </section>
       </main>
-      <div id="error" class="error" hidden></div>
     </div>
+    <div id="error" class="error" role="alert" hidden></div>
     <script src="/blue.js" defer></script>
   </body>
 </html>

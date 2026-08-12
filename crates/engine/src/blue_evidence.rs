@@ -68,6 +68,7 @@ impl BlueEvidenceReviewer {
             "department_code": claim.department_code,
             "blue_daily_rank": claim.daily_rank,
             "blue_selection_score": claim.selection_score,
+            "review_horizon": claim.review_horizon,
             "forecast_24h": {
                 "index": claim.alert_24h_index,
                 "valid_at": claim.alert_24h_valid_at,
@@ -81,7 +82,7 @@ impl BlueEvidenceReviewer {
             "model": self.model,
             "tools": [{"type": "web_search"}],
             "include": ["web_search_call.action.sources"],
-            "instructions": "Tu es le vérificateur de preuves de BLUE. Recherche sur le web des traces d'incendie ou de feu de végétation pour la commune et la fenêtre temporelle fournies. Privilégie les sources datées et localisées (autorités, secours, presse locale crédible). Ne considère jamais une absence de résultat comme la preuve qu'aucun incendie n'a eu lieu. N'invente aucune source. Un verdict confirmed exige une preuve directe avec URL et concordance claire de lieu et de date; probable exige au moins une source crédible mais une concordance imparfaite; signal_observed exige une source réelle mais insuffisante; no_evidence_found signifie seulement que la recherche n'a rien trouvé et doit rester non concluant statistiquement. Réponds en français, sobrement.",
+            "instructions": "Tu es le vérificateur de preuves de BLUE. Recherche sur le web des traces d'incendie ou de feu de végétation pour la commune dans la fenêtre qui commence à issued_at et se termine au valid_at du review_horizon demandé. Pour hours_24, produis un constat provisoire limité aux premières 24 heures. Pour hours_48, produis le constat final couvrant les 48 heures complètes, même si une première recherche a déjà eu lieu. Privilégie les sources datées et localisées (autorités, secours, presse locale crédible). Ne considère jamais une absence de résultat comme la preuve qu'aucun incendie n'a eu lieu. N'invente aucune source. Un verdict confirmed exige une preuve directe avec URL et concordance claire de lieu et de date; probable exige au moins une source crédible mais une concordance imparfaite; signal_observed exige une source réelle mais insuffisante; no_evidence_found signifie seulement que la recherche n'a rien trouvé et doit rester non concluant statistiquement. Réponds en français, sobrement.",
             "input": [{
                 "role": "user",
                 "content": format!("Vérifie ce dossier de prévision BLUE après échéance. Données du dossier: {case_data}")

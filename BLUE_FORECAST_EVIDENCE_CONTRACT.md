@@ -40,9 +40,9 @@ La provenance technique complète reste disponible dans la base interne pour l'a
 
 ## Vérification ultérieure
 
-La vérification est séparée de la prévision. Une fiche commence à l'état `pending`, puis pourra évoluer vers : recherche en cours, signal observé, probable, confirmé, aucun événement confirmé ou non concluant.
+La vérification est séparée de la prévision. Une fiche commence à l'état `pending`, reçoit un premier constat provisoire après l'échéance +24 h, puis un verdict final après l'échéance +48 h. Les deux passages, leurs réponses brutes et leurs sources sont conservés séparément.
 
-La Phase 1 ne fabrique aucun verdict automatique. Une future phase ajoutera des éléments de preuve datés et traçables. L'absence de preuve ne devra jamais être transformée automatiquement en preuve d'absence.
+Une fiche peut évoluer vers : recherche en cours, signal observé, probable, confirmé, aucune preuve trouvée ou non concluant. L'absence de preuve n'est jamais transformée automatiquement en preuve d'absence.
 
 ## Sécurité et activation
 

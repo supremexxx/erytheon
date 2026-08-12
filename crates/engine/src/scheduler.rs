@@ -254,6 +254,7 @@ async fn poll_forecast(
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn poll_blue_evidence(config: Config, store: Store) {
     if !config.blue_center_enabled {
         return;
@@ -310,6 +311,8 @@ async fn poll_blue_evidence(config: Config, store: Store) {
                 .start_blue_evidence_run(
                     &claim.id,
                     claim.attempt_count,
+                    &claim.review_horizon,
+                    claim.stage_attempt_count,
                     &checksum,
                     reviewer.model(),
                 )
@@ -324,7 +327,13 @@ async fn poll_blue_evidence(config: Config, store: Store) {
             match reviewer.review(&claim).await {
                 Ok(result) => {
                     if let Err(error) = store
-                        .complete_blue_evidence_run(&claim.id, &run_id, reviewer.model(), &result)
+                        .complete_blue_evidence_run(
+                            &claim.id,
+                            &run_id,
+                            &claim.review_horizon,
+                            reviewer.model(),
+                            &result,
+                        )
                         .await
                     {
                         tracing::error!(%error, case_id = %claim.id, "failed to persist BLUE evidence result");
@@ -333,6 +342,7 @@ async fn poll_blue_evidence(config: Config, store: Store) {
                             case_id = %claim.id,
                             commune = %claim.commune_name,
                             verdict = %result.verdict,
+                            horizon = %claim.review_horizon,
                             sources = result.sources.len(),
                             "BLUE automatic evidence review complete"
                         );
@@ -341,7 +351,12 @@ async fn poll_blue_evidence(config: Config, store: Store) {
                 Err(error) => {
                     let safe_error = error.to_string();
                     if let Err(store_error) = store
-                        .fail_blue_evidence_run(&claim.id, &run_id, &safe_error)
+                        .fail_blue_evidence_run(
+                            &claim.id,
+                            &run_id,
+                            &claim.review_horizon,
+                            &safe_error,
+                        )
                         .await
                     {
                         tracing::error!(%store_error, case_id = %claim.id, "failed to persist BLUE evidence failure");

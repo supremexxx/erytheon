@@ -10,11 +10,14 @@ Les horizons +24 h et +48 h d'une même commune appartiennent au même dossier. 
 
 1. Le bulletin quotidien immuable est publié.
 2. Les vingt communes au score le plus élevé sont sélectionnées sans modifier l'archive.
-3. La recherche attend six heures après l'échéance +48 h.
-4. Le service effectue une recherche web avec `gpt-5.6-luna` par défaut.
-5. La réponse brute, le modèle, les jetons, le verdict et chaque URL citée sont archivés.
-6. Une recherche sans preuve est classée `no_evidence_found`, jamais « aucun incendie ».
-7. Ce résultat déclenche une seconde et dernière recherche 72 heures plus tard.
+3. Une première recherche démarre trois heures après l'échéance +24 h et produit un constat provisoire.
+4. Une seconde recherche démarre trois heures après l'échéance +48 h et produit le verdict final sur la fenêtre complète.
+5. Le service effectue ces recherches avec `gpt-5.6-luna` par défaut.
+6. La réponse brute, l'horizon contrôlé, le modèle, les jetons, le verdict et chaque URL citée sont archivés séparément.
+7. Une recherche sans preuve est classée `no_evidence_found`, jamais « aucun incendie ».
+8. Après +48 h seulement, ce résultat peut déclencher une seconde et dernière recherche 72 heures plus tard.
+
+Une erreur technique peut être relancée une fois sur chaque horizon. Deux échecs à +24 h n'empêchent jamais la vérification finale à +48 h.
 
 ## Verdicts
 

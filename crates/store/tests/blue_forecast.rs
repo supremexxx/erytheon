@@ -201,9 +201,11 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
     assert!(cases[0].alert_48h_id.is_some());
     assert_eq!(
         cases[0].research_after,
-        computed_at + Duration::hours(54),
-        "research waits until six hours after the +48 h horizon"
+        computed_at + Duration::hours(27),
+        "the provisional review starts three hours after the +24 h horizon"
     );
+    assert_eq!(cases[0].review_stage, "hours_24");
+    assert_eq!(cases[0].provisional_verdict, "pending");
     let serialized = serde_json::to_value(&first).expect("serialize bulletin");
     assert!(
         serialized.get("forecast_source").is_none(),
