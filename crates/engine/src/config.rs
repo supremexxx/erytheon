@@ -38,6 +38,7 @@ const DEFAULT_SCIENCE_CONSOLE_ENABLED: &str = "false";
 /// `false` for the same reason as `SCIENCE_CONSOLE_ENABLED`: this is a
 /// deployment gate for an early prototype, not access control.
 const DEFAULT_CLIENT_CONSOLE_ENABLED: &str = "false";
+const DEFAULT_BLUE_CENTER_ENABLED: &str = "false";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -66,6 +67,7 @@ pub struct Config {
     pub api_bind: SocketAddr,
     pub science_console_enabled: bool,
     pub client_console_enabled: bool,
+    pub blue_center_enabled: bool,
 }
 
 impl Config {
@@ -134,6 +136,7 @@ impl Config {
                 "CLIENT_CONSOLE_ENABLED",
                 DEFAULT_CLIENT_CONSOLE_ENABLED,
             )?,
+            blue_center_enabled: parse_env("BLUE_CENTER_ENABLED", DEFAULT_BLUE_CENTER_ENABLED)?,
         };
         config.validate()?;
         Ok(config)

@@ -10,6 +10,7 @@ use risk::{Factor, Horizon, RiskScore};
 use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 
 mod bdiff;
+mod blue;
 mod commune;
 mod dataset;
 mod firms;
@@ -19,7 +20,8 @@ mod quality;
 mod science;
 
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
-pub use commune::CommuneBoundary;
+pub use blue::{BlueForecastAlertRow, BlueForecastBulletinRow, BlueForecastContext};
+pub use commune::{CommuneBoundary, CommuneCatalogEntry};
 pub use dataset::{
     AnyCauseEventForNegativeDesign, CalendarDayLookup, CalendarRuleVersion, DatasetBuildCounts,
     DatasetEventLinkRecord, DatasetExclusionRecord, DatasetRowRecord, DatasetVersionSpec,
@@ -1422,6 +1424,10 @@ impl Store {
                AND NOT EXISTS (
                    SELECT 1 FROM observability.scientific_snapshots AS snapshot
                    WHERE snapshot.forecast_batch_computed_at = batch.computed_at
+               )
+               AND NOT EXISTS (
+                   SELECT 1 FROM blue.forecast_bulletins AS bulletin
+                   WHERE bulletin.forecast_batch_computed_at = batch.computed_at
                )",
         )
         .bind(computed_at)

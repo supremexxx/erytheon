@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>BLUE — Forecast & Evidence Center</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/blue.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand"><span class="mark">B</span><div><strong>BLUE</strong><small>Forecast & Evidence Center</small></div></div>
+        <div class="top-meta"><span><i class="dot"></i> Registre privé</span><time id="clock">—</time></div>
+      </header>
+      <main>
+        <section class="hero">
+          <div><p class="eyebrow">Bulletin quotidien immuable</p><h1>Vigilance incendie territoriale</h1><p id="interpretation">Chargement du dernier bulletin BLUE…</p></div>
+          <div class="seal"><span>Prévision figée</span><strong id="bulletin-date">—</strong><small id="bulletin-checksum">Empreinte en attente</small></div>
+        </section>
+
+        <section class="metrics" aria-label="Synthèse">
+          <article><span>Communes évaluées</span><strong id="commune-count">—</strong><small id="coverage">Couverture en attente</small></article>
+          <article><span>Vigilances +24 h</span><strong id="count-24">—</strong><small>Indice p95 ≥ 0,65</small></article>
+          <article><span>Vigilances +48 h</span><strong id="count-48">—</strong><small>Indice p95 ≥ 0,65</small></article>
+          <article><span>Version BLUE</span><strong id="model-version">—</strong><small id="issued-at">Émission en attente</small></article>
+        </section>
+
+        <section class="workspace">
+          <aside class="filters">
+            <p class="eyebrow">Échéance</p>
+            <div class="segmented" role="group" aria-label="Échéance">
+              <button class="active" data-horizon="hours_24">+24 h</button>
+              <button data-horizon="hours_48">+48 h</button>
+            </div>
+            <label>Rechercher une commune<input id="search" type="search" placeholder="Nom, département, INSEE"></label>
+            <label>Niveau<select id="level"><option value="">Tous</option><option value="critical">Critique</option><option value="elevated">Élevé</option></select></label>
+            <div class="method"><strong>Lecture honnête</strong><p>L’indice BLUE mesure une vigilance relative. Il ne constitue pas une probabilité certaine de départ de feu.</p></div>
+          </aside>
+
+          <section class="ledger">
+            <div class="section-head"><div><p class="eyebrow">Registre des prévisions</p><h2 id="ledger-title">Échéance +24 h</h2></div><span id="visible-count">—</span></div>
+            <div id="empty" class="empty" hidden>Aucune vigilance ne correspond aux filtres.</div>
+            <div class="table-wrap"><table><thead><tr><th>Commune</th><th>Indice BLUE</th><th>Maximum</th><th>Cellules élevées</th><th>Échéance</th><th>Vérification</th></tr></thead><tbody id="alerts"></tbody></table></div>
+          </section>
+        </section>
+
+        <section class="archive">
+          <div class="section-head"><div><p class="eyebrow">Traçabilité</p><h2>Éditions précédentes</h2></div><span>Lecture seule</span></div>
+          <div id="bulletins" class="archive-grid"></div>
+        </section>
+      </main>
+      <div id="error" class="error" hidden></div>
+    </div>
+    <script src="/blue.js" defer></script>
+  </body>
+</html>

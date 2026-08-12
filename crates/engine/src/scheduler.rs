@@ -10,7 +10,7 @@ use ingest::{
     open_meteo::{ForecastModel, OpenMeteoForecastSource},
 };
 use risk::HeuristicV1;
-use store::{FreshnessThresholds, Store, SystemSnapshotContext};
+use store::{BlueForecastContext, FreshnessThresholds, Store, SystemSnapshotContext};
 use tokio::{
     sync::broadcast,
     time::{MissedTickBehavior, interval},
@@ -186,6 +186,39 @@ async fn poll_forecast(
                         computed_at = %summary.computed_at,
                         "daily dense scientific archive failed; operational forecast remains published"
                     ),
+                }
+                if config.blue_center_enabled {
+                    let context = BlueForecastContext {
+                        environment: std::env::var("ERYTHEON_ENVIRONMENT")
+                            .unwrap_or_else(|_| "production".to_owned()),
+                        application_revision: std::env::var("ERYTHEON_GIT_REVISION")
+                            .unwrap_or_default(),
+                        application_image: std::env::var("ERYTHEON_IMAGE_REFERENCE")
+                            .unwrap_or_default(),
+                        application_image_digest: std::env::var("ERYTHEON_IMAGE_DIGEST")
+                            .unwrap_or_default(),
+                    };
+                    match store
+                        .capture_blue_daily_bulletin(
+                            summary.computed_at,
+                            summary.source_id,
+                            &context,
+                        )
+                        .await
+                    {
+                        Ok(Some(bulletin)) => tracing::info!(
+                            bulletin_id = %bulletin.id,
+                            bulletin_date = %bulletin.bulletin_date,
+                            alerts_24h = bulletin.alerts_24h,
+                            alerts_48h = bulletin.alerts_48h,
+                            "BLUE daily forecast bulletin available"
+                        ),
+                        Ok(None) => tracing::debug!("BLUE daily issue slot not reached"),
+                        Err(error) => tracing::error!(
+                            %error,
+                            "BLUE bulletin failed; operational forecast remains published"
+                        ),
+                    }
                 }
                 tracing::info!(
                     source = summary.source_id,
