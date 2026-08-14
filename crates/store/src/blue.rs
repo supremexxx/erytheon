@@ -1005,13 +1005,31 @@ fn rate(numerator: i64, denominator: i64) -> BlueRateMetric {
     BlueRateMetric {
         numerator,
         denominator,
-        value: (denominator > 0).then(|| numerator as f64 / denominator as f64),
+        value: (denominator > 0)
+            .then(|| bounded_i64_to_f64(numerator) / bounded_i64_to_f64(denominator)),
     }
 }
 
 fn mean(values: impl Iterator<Item = f64>) -> Option<f64> {
     let values: Vec<f64> = values.collect();
-    (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+    (!values.is_empty()).then(|| {
+        values.iter().sum::<f64>()
+            / f64::from(u32::try_from(values.len()).unwrap_or(u32::MAX))
+    })
+}
+
+fn count_i64(value: usize) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+fn bounded_i64_to_f64(value: i64) -> f64 {
+    f64::from(i32::try_from(value).unwrap_or_else(|_| {
+        if value.is_negative() {
+            i32::MIN
+        } else {
+            i32::MAX
+        }
+    }))
 }
 
 fn is_observed(verdict: &str) -> bool {
@@ -1026,6 +1044,7 @@ fn horizon_verdict(row: &BluePerformanceCase, hours_24: bool) -> &str {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn horizon_performance(rows: &[BluePerformanceCase], hours_24: bool) -> BlueHorizonPerformance {
     let eligible: Vec<&BluePerformanceCase> = rows
         .iter()
@@ -1052,17 +1071,19 @@ fn horizon_performance(rows: &[BluePerformanceCase], hours_24: bool) -> BlueHori
     let observed = reviewed
         .iter()
         .filter(|row| is_observed(horizon_verdict(row, hours_24)))
-        .count() as i64;
+        .count();
     let top_rate = |limit: i16| {
         let top: Vec<&&BluePerformanceCase> = reviewed
             .iter()
             .filter(|row| row.daily_rank <= limit)
             .collect();
         rate(
-            top.iter()
-                .filter(|row| is_observed(horizon_verdict(row, hours_24)))
-                .count() as i64,
-            top.len() as i64,
+            count_i64(
+                top.iter()
+                    .filter(|row| is_observed(horizon_verdict(row, hours_24)))
+                    .count(),
+            ),
+            count_i64(top.len()),
         )
     };
     let lead_times = reviewed.iter().filter_map(|row| {
@@ -1071,21 +1092,28 @@ fn horizon_performance(rows: &[BluePerformanceCase], hours_24: bool) -> BlueHori
         } else {
             row.observed_event_at
         }?;
-        Some((event - row.issued_at).num_minutes() as f64 / 60.0)
+        Some(bounded_i64_to_f64((event - row.issued_at).num_minutes()) / 60.0)
     });
+    let eligible_count = count_i64(eligible.len());
+    let reviewed_count = count_i64(reviewed.len());
+    let observed_count = count_i64(observed);
     BlueHorizonPerformance {
-        eligible_cases: eligible.len() as i64,
-        reviewed_cases: reviewed.len() as i64,
-        pending_cases: (eligible.len() - reviewed.len()) as i64,
-        observed_signals: observed,
-        no_evidence_found: reviewed
-            .iter()
-            .filter(|row| horizon_verdict(row, hours_24) == "no_evidence_found")
-            .count() as i64,
-        inconclusive: reviewed
-            .iter()
-            .filter(|row| horizon_verdict(row, hours_24) == "inconclusive")
-            .count() as i64,
+        eligible_cases: eligible_count,
+        reviewed_cases: reviewed_count,
+        pending_cases: count_i64(eligible.len() - reviewed.len()),
+        observed_signals: observed_count,
+        no_evidence_found: count_i64(
+            reviewed
+                .iter()
+                .filter(|row| horizon_verdict(row, hours_24) == "no_evidence_found")
+                .count(),
+        ),
+        inconclusive: count_i64(
+            reviewed
+                .iter()
+                .filter(|row| horizon_verdict(row, hours_24) == "inconclusive")
+                .count(),
+        ),
         evidence_sources: reviewed
             .iter()
             .map(|row| {
@@ -1096,8 +1124,8 @@ fn horizon_performance(rows: &[BluePerformanceCase], hours_24: bool) -> BlueHori
                 }
             })
             .sum(),
-        review_coverage: rate(reviewed.len() as i64, eligible.len() as i64),
-        observed_signal_rate: rate(observed, reviewed.len() as i64),
+        review_coverage: rate(reviewed_count, eligible_count),
+        observed_signal_rate: rate(observed_count, reviewed_count),
         observed_signal_rate_at_5: top_rate(5),
         observed_signal_rate_at_10: top_rate(10),
         observed_signal_rate_at_20: top_rate(20),
@@ -1165,7 +1193,7 @@ fn build_blue_performance_summary(
         period_start,
         period_end,
         bulletin_count,
-        selected_case_count: rows.len() as i64,
+        selected_case_count: count_i64(rows.len()),
         hours_24: horizon_performance(rows, true),
         hours_48: horizon_performance(rows, false),
         bulletins: daily.into_values().rev().collect(),
