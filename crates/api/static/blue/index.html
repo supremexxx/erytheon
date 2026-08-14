@@ -15,6 +15,10 @@
         <a class="brand" href="/" aria-label="BLUE, accueil"><i aria-hidden="true"></i><strong>BLUE</strong></a>
         <div class="edition"><span>Prévisions quotidiennes</span><b id="bulletin-date">Chargement…</b><em id="edition-status"><i></i> bulletin actif</em></div>
         <div class="tools">
+          <div class="view-switch" role="tablist" aria-label="Mode d’affichage">
+            <button id="view-analysis" type="button" role="tab" aria-selected="true">Analyse</button>
+            <button id="view-table" type="button" role="tab" aria-selected="false">Tableau</button>
+          </div>
           <label class="search"><span>Rechercher une commune</span><input id="search" type="search" placeholder="Commune, département ou INSEE" autocomplete="off"></label>
           <label class="status-filter"><span>Validation</span><select id="verdict"><option value="">Tous les états</option><option value="pending">En attente</option><option value="confirmed">Confirmé</option><option value="probable">Probable</option><option value="signal_observed">Signal observé</option><option value="inconclusive">Non concluant</option><option value="no_evidence_found">Aucune preuve</option></select></label>
           <details class="archives"><summary>Archives</summary><div id="bulletins"></div></details>
@@ -78,6 +82,53 @@
           </footer>
         </section>
       </main>
+
+      <section id="stats-view" class="stats-view" aria-labelledby="stats-title" hidden>
+        <header class="stats-head">
+          <div>
+            <span>REGISTRE DE PRÉVISION</span>
+            <h1 id="stats-title">Bulletin du <b id="stats-date">—</b></h1>
+            <p id="stats-subtitle">Prévision BLUE et contrôles d’observation associés.</p>
+          </div>
+          <button id="export-pdf" class="export-pdf" type="button"><i aria-hidden="true"></i>Exporter ce bulletin en PDF</button>
+        </header>
+
+        <section class="stats-summary" aria-label="Synthèse du bulletin">
+          <article><span>Communes suivies</span><strong id="stat-total">—</strong><small>sélection quotidienne</small></article>
+          <article><span>Score moyen +24 h</span><strong id="stat-mean-24">—</strong><small>indice BLUE</small></article>
+          <article><span>Score moyen +48 h</span><strong id="stat-mean-48">—</strong><small>indice BLUE</small></article>
+          <article><span>Contrôles +24 h</span><strong id="stat-reviewed-24">—</strong><small>terminés</small></article>
+          <article><span>Validations +48 h</span><strong id="stat-reviewed-48">—</strong><small>définitives</small></article>
+          <article><span>Signaux observés</span><strong id="stat-observed">—</strong><small>confirmés, probables ou observés</small></article>
+        </section>
+
+        <div class="forecast-table-wrap">
+          <table class="forecast-table">
+            <thead>
+              <tr>
+                <th scope="col">Rang</th>
+                <th scope="col">Commune</th>
+                <th scope="col">Dépt.</th>
+                <th scope="col" class="numeric">Score +24 h</th>
+                <th scope="col" class="numeric">Score +48 h</th>
+                <th scope="col" class="numeric">Évolution</th>
+                <th scope="col">Résultat +24 h</th>
+                <th scope="col" class="numeric">Preuves +24 h</th>
+                <th scope="col">Résultat +48 h</th>
+                <th scope="col" class="numeric">Preuves +48 h</th>
+                <th scope="col">Conclusion</th>
+              </tr>
+            </thead>
+            <tbody id="forecast-table-body"></tbody>
+          </table>
+        </div>
+
+        <footer class="stats-notes">
+          <div><strong>Interprétation</strong><p>BLUE mesure un niveau relatif de vigilance. Un score élevé ne constitue jamais une certitude de départ de feu.</p></div>
+          <dl><div><dt>Modèle</dt><dd id="stats-model">—</dd></div><div><dt>Émission</dt><dd id="stats-issued">—</dd></div><div><dt>Identifiant</dt><dd id="stats-id">—</dd></div></dl>
+          <time id="print-generated-at"></time>
+        </footer>
+      </section>
     </div>
     <div id="error" class="error" role="alert" hidden></div>
     <script src="/blue.js" defer></script>
