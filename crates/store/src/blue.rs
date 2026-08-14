@@ -1013,8 +1013,7 @@ fn rate(numerator: i64, denominator: i64) -> BlueRateMetric {
 fn mean(values: impl Iterator<Item = f64>) -> Option<f64> {
     let values: Vec<f64> = values.collect();
     (!values.is_empty()).then(|| {
-        values.iter().sum::<f64>()
-            / f64::from(u32::try_from(values.len()).unwrap_or(u32::MAX))
+        values.iter().sum::<f64>() / f64::from(u32::try_from(values.len()).unwrap_or(u32::MAX))
     })
 }
 
