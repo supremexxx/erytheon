@@ -88,6 +88,30 @@ async fn enabled_blue_center_is_read_only_and_hides_upstream_provenance() {
     let text = String::from_utf8(body.to_vec()).expect("utf8 JSON");
     assert!(!text.contains("forecast_source"));
 
+    let performance = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/blue/performance")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(performance.status(), StatusCode::OK);
+
+    let invalid_period = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/blue/performance?from=2026-08-14&to=2026-08-01")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(invalid_period.status(), StatusCode::BAD_REQUEST);
+
     let mutation = app
         .oneshot(
             Request::builder()

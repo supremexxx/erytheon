@@ -1,5 +1,7 @@
 //! Immutable BLUE daily forecast bulletins and read-only evidence views.
 
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, NaiveDate, TimeZone as _, Utc};
 use serde::Serialize;
 use serde_json::Value;
@@ -100,6 +102,79 @@ pub struct BlueEvidenceCaseRow {
     pub attempt_count: i16,
     pub completed_at: Option<DateTime<Utc>>,
     pub sources: Value,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BlueRateMetric {
+    pub numerator: i64,
+    pub denominator: i64,
+    pub value: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BlueHorizonPerformance {
+    pub eligible_cases: i64,
+    pub reviewed_cases: i64,
+    pub pending_cases: i64,
+    pub observed_signals: i64,
+    pub no_evidence_found: i64,
+    pub inconclusive: i64,
+    pub evidence_sources: i64,
+    pub review_coverage: BlueRateMetric,
+    pub observed_signal_rate: BlueRateMetric,
+    pub observed_signal_rate_at_5: BlueRateMetric,
+    pub observed_signal_rate_at_10: BlueRateMetric,
+    pub observed_signal_rate_at_20: BlueRateMetric,
+    pub mean_score_reviewed: Option<f64>,
+    pub mean_score_observed: Option<f64>,
+    pub mean_confidence: Option<f64>,
+    pub mean_lead_time_hours: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BlueBulletinPerformanceRow {
+    pub bulletin_id: String,
+    pub bulletin_date: NaiveDate,
+    pub selected_cases: i64,
+    pub reviewed_24h: i64,
+    pub reviewed_48h: i64,
+    pub observed_24h: i64,
+    pub observed_48h: i64,
+    pub evidence_sources: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BluePerformanceSummary {
+    pub generated_at: DateTime<Utc>,
+    pub period_start: Option<NaiveDate>,
+    pub period_end: Option<NaiveDate>,
+    pub bulletin_count: i64,
+    pub selected_case_count: i64,
+    pub hours_24: BlueHorizonPerformance,
+    pub hours_48: BlueHorizonPerformance,
+    pub bulletins: Vec<BlueBulletinPerformanceRow>,
+    pub unavailable_metrics: Vec<&'static str>,
+    pub methodology: &'static str,
+}
+
+#[derive(Clone, Debug, sqlx::FromRow)]
+struct BluePerformanceCase {
+    bulletin_id: String,
+    bulletin_date: NaiveDate,
+    issued_at: DateTime<Utc>,
+    daily_rank: i16,
+    score_24h: Option<f32>,
+    score_48h: Option<f32>,
+    provisional_verdict: String,
+    provisional_confidence: Option<f32>,
+    provisional_observed_event_at: Option<DateTime<Utc>>,
+    provisional_completed_at: Option<DateTime<Utc>>,
+    verdict: String,
+    confidence: Option<f32>,
+    observed_event_at: Option<DateTime<Utc>>,
+    completed_at: Option<DateTime<Utc>>,
+    sources_24h: i64,
+    sources_48h: i64,
 }
 
 #[derive(Clone, Debug, sqlx::FromRow)]
@@ -609,6 +684,64 @@ impl Store {
         .map_err(StoreError::from)
     }
 
+    /// Builds an honest, read-only performance summary from completed evidence reviews.
+    /// Missing evidence is kept distinct from a confirmed absence of fire.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error when the summary inputs cannot be read.
+    pub async fn blue_performance_summary(
+        &self,
+        from: Option<NaiveDate>,
+        to: Option<NaiveDate>,
+    ) -> Result<BluePerformanceSummary, StoreError> {
+        let (bulletin_count, period_start, period_end): (
+            i64,
+            Option<NaiveDate>,
+            Option<NaiveDate>,
+        ) = sqlx::query_as(
+            "SELECT COUNT(*)::bigint,MIN(bulletin_date),MAX(bulletin_date)
+             FROM blue.forecast_bulletins
+             WHERE status='published'
+               AND ($1::date IS NULL OR bulletin_date >= $1)
+               AND ($2::date IS NULL OR bulletin_date <= $2)",
+        )
+        .bind(from)
+        .bind(to)
+        .fetch_one(&self.pool)
+        .await?;
+        let rows: Vec<BluePerformanceCase> = sqlx::query_as(
+            "SELECT c.bulletin_id::text,b.bulletin_date,b.issued_at,c.daily_rank,
+                a24.alert_index score_24h,a48.alert_index score_48h,
+                c.provisional_verdict,c.provisional_confidence,
+                c.provisional_observed_event_at,c.provisional_completed_at,
+                c.verdict,c.confidence,c.observed_event_at,c.completed_at,
+                COALESCE((SELECT COUNT(*) FROM blue.evidence_runs r
+                    JOIN blue.evidence_sources s ON s.run_id=r.id
+                    WHERE r.case_id=c.id AND r.review_horizon='hours_24'),0)::bigint sources_24h,
+                COALESCE((SELECT COUNT(*) FROM blue.evidence_runs r
+                    JOIN blue.evidence_sources s ON s.run_id=r.id
+                    WHERE r.case_id=c.id AND r.review_horizon='hours_48'),0)::bigint sources_48h
+             FROM blue.evidence_cases c
+             JOIN blue.forecast_bulletins b ON b.id=c.bulletin_id AND b.status='published'
+             LEFT JOIN blue.forecast_alerts a24 ON a24.id=c.alert_24h_id
+             LEFT JOIN blue.forecast_alerts a48 ON a48.id=c.alert_48h_id
+             WHERE ($1::date IS NULL OR b.bulletin_date >= $1)
+               AND ($2::date IS NULL OR b.bulletin_date <= $2)
+             ORDER BY b.bulletin_date DESC,c.daily_rank",
+        )
+        .bind(from)
+        .bind(to)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(build_blue_performance_summary(
+            bulletin_count,
+            period_start,
+            period_end,
+            &rows,
+        ))
+    }
+
     /// Atomically claims one due evidence case for the automatic reviewer.
     ///
     /// # Errors
@@ -865,5 +998,240 @@ impl Store {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+}
+
+fn rate(numerator: i64, denominator: i64) -> BlueRateMetric {
+    BlueRateMetric {
+        numerator,
+        denominator,
+        value: (denominator > 0).then(|| numerator as f64 / denominator as f64),
+    }
+}
+
+fn mean(values: impl Iterator<Item = f64>) -> Option<f64> {
+    let values: Vec<f64> = values.collect();
+    (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+}
+
+fn is_observed(verdict: &str) -> bool {
+    matches!(verdict, "signal_observed" | "probable" | "confirmed")
+}
+
+fn horizon_verdict(row: &BluePerformanceCase, hours_24: bool) -> &str {
+    if hours_24 {
+        &row.provisional_verdict
+    } else {
+        &row.verdict
+    }
+}
+
+fn horizon_performance(rows: &[BluePerformanceCase], hours_24: bool) -> BlueHorizonPerformance {
+    let eligible: Vec<&BluePerformanceCase> = rows
+        .iter()
+        .filter(|row| {
+            if hours_24 {
+                row.score_24h
+            } else {
+                row.score_48h
+            }
+            .is_some()
+        })
+        .collect();
+    let reviewed: Vec<&BluePerformanceCase> = eligible
+        .iter()
+        .copied()
+        .filter(|row| {
+            if hours_24 {
+                row.provisional_completed_at.is_some()
+            } else {
+                row.completed_at.is_some()
+            }
+        })
+        .collect();
+    let observed = reviewed
+        .iter()
+        .filter(|row| is_observed(horizon_verdict(row, hours_24)))
+        .count() as i64;
+    let top_rate = |limit: i16| {
+        let top: Vec<&&BluePerformanceCase> = reviewed
+            .iter()
+            .filter(|row| row.daily_rank <= limit)
+            .collect();
+        rate(
+            top.iter()
+                .filter(|row| is_observed(horizon_verdict(row, hours_24)))
+                .count() as i64,
+            top.len() as i64,
+        )
+    };
+    let lead_times = reviewed.iter().filter_map(|row| {
+        let event = if hours_24 {
+            row.provisional_observed_event_at
+        } else {
+            row.observed_event_at
+        }?;
+        Some((event - row.issued_at).num_minutes() as f64 / 60.0)
+    });
+    BlueHorizonPerformance {
+        eligible_cases: eligible.len() as i64,
+        reviewed_cases: reviewed.len() as i64,
+        pending_cases: (eligible.len() - reviewed.len()) as i64,
+        observed_signals: observed,
+        no_evidence_found: reviewed
+            .iter()
+            .filter(|row| horizon_verdict(row, hours_24) == "no_evidence_found")
+            .count() as i64,
+        inconclusive: reviewed
+            .iter()
+            .filter(|row| horizon_verdict(row, hours_24) == "inconclusive")
+            .count() as i64,
+        evidence_sources: reviewed
+            .iter()
+            .map(|row| {
+                if hours_24 {
+                    row.sources_24h
+                } else {
+                    row.sources_48h
+                }
+            })
+            .sum(),
+        review_coverage: rate(reviewed.len() as i64, eligible.len() as i64),
+        observed_signal_rate: rate(observed, reviewed.len() as i64),
+        observed_signal_rate_at_5: top_rate(5),
+        observed_signal_rate_at_10: top_rate(10),
+        observed_signal_rate_at_20: top_rate(20),
+        mean_score_reviewed: mean(reviewed.iter().filter_map(|row| {
+            if hours_24 {
+                row.score_24h
+            } else {
+                row.score_48h
+            }
+            .map(f64::from)
+        })),
+        mean_score_observed: mean(reviewed.iter().filter_map(|row| {
+            is_observed(horizon_verdict(row, hours_24)).then_some(
+                if hours_24 {
+                    row.score_24h
+                } else {
+                    row.score_48h
+                }
+                .map(f64::from),
+            )?
+        })),
+        mean_confidence: mean(reviewed.iter().filter_map(|row| {
+            if hours_24 {
+                row.provisional_confidence
+            } else {
+                row.confidence
+            }
+            .map(f64::from)
+        })),
+        mean_lead_time_hours: mean(lead_times),
+    }
+}
+
+fn build_blue_performance_summary(
+    bulletin_count: i64,
+    period_start: Option<NaiveDate>,
+    period_end: Option<NaiveDate>,
+    rows: &[BluePerformanceCase],
+) -> BluePerformanceSummary {
+    let mut daily: BTreeMap<(NaiveDate, String), BlueBulletinPerformanceRow> = BTreeMap::new();
+    for row in rows {
+        let item = daily
+            .entry((row.bulletin_date, row.bulletin_id.clone()))
+            .or_insert_with(|| BlueBulletinPerformanceRow {
+                bulletin_id: row.bulletin_id.clone(),
+                bulletin_date: row.bulletin_date,
+                selected_cases: 0,
+                reviewed_24h: 0,
+                reviewed_48h: 0,
+                observed_24h: 0,
+                observed_48h: 0,
+                evidence_sources: 0,
+            });
+        item.selected_cases += 1;
+        item.reviewed_24h += i64::from(row.provisional_completed_at.is_some());
+        item.reviewed_48h += i64::from(row.completed_at.is_some());
+        item.observed_24h += i64::from(
+            row.provisional_completed_at.is_some() && is_observed(&row.provisional_verdict),
+        );
+        item.observed_48h += i64::from(row.completed_at.is_some() && is_observed(&row.verdict));
+        item.evidence_sources += row.sources_24h + row.sources_48h;
+    }
+    BluePerformanceSummary {
+        generated_at: Utc::now(),
+        period_start,
+        period_end,
+        bulletin_count,
+        selected_case_count: rows.len() as i64,
+        hours_24: horizon_performance(rows, true),
+        hours_48: horizon_performance(rows, false),
+        bulletins: daily.into_values().rev().collect(),
+        unavailable_metrics: vec![
+            "recall",
+            "false_negative_rate",
+            "specificity",
+            "territorial_accuracy",
+            "calibrated_probability_accuracy",
+        ],
+        methodology: "Mesures limitées aux communes du Top 20 contrôlées après échéance. Une absence de preuve publiée n'est jamais interprétée comme une absence certaine d'incendie.",
+    }
+}
+
+#[cfg(test)]
+mod performance_tests {
+    use super::*;
+
+    fn case(verdict_24h: &str, verdict_48h: &str, final_ready: bool) -> BluePerformanceCase {
+        let issued_at = DateTime::parse_from_rfc3339("2026-08-12T06:00:00Z")
+            .expect("timestamp")
+            .with_timezone(&Utc);
+        BluePerformanceCase {
+            bulletin_id: "00000000-0000-0000-0000-000000000001".to_owned(),
+            bulletin_date: NaiveDate::from_ymd_opt(2026, 8, 12).expect("date"),
+            issued_at,
+            daily_rank: 1,
+            score_24h: Some(0.91),
+            score_48h: Some(0.87),
+            provisional_verdict: verdict_24h.to_owned(),
+            provisional_confidence: Some(0.8),
+            provisional_observed_event_at: None,
+            provisional_completed_at: Some(issued_at + chrono::Duration::hours(27)),
+            verdict: verdict_48h.to_owned(),
+            confidence: final_ready.then_some(0.75),
+            observed_event_at: None,
+            completed_at: final_ready.then_some(issued_at + chrono::Duration::hours(51)),
+            sources_24h: 3,
+            sources_48h: i64::from(final_ready) * 2,
+        }
+    }
+
+    #[test]
+    fn no_evidence_is_not_counted_as_an_observed_signal() {
+        let rows = vec![case("no_evidence_found", "no_evidence_found", true)];
+        let summary = build_blue_performance_summary(
+            1,
+            rows.first().map(|row| row.bulletin_date),
+            rows.first().map(|row| row.bulletin_date),
+            &rows,
+        );
+        assert_eq!(summary.hours_24.no_evidence_found, 1);
+        assert_eq!(summary.hours_24.observed_signal_rate.denominator, 1);
+        assert_eq!(summary.hours_24.observed_signal_rate.numerator, 0);
+        assert_eq!(summary.hours_48.no_evidence_found, 1);
+        assert!(summary.unavailable_metrics.contains(&"recall"));
+    }
+
+    #[test]
+    fn pending_final_reviews_do_not_dilute_the_final_rate() {
+        let rows = vec![case("signal_observed", "signal_observed", false)];
+        let summary = build_blue_performance_summary(1, None, None, &rows);
+        assert_eq!(summary.hours_24.observed_signal_rate.denominator, 1);
+        assert_eq!(summary.hours_24.observed_signal_rate.numerator, 1);
+        assert_eq!(summary.hours_48.pending_cases, 1);
+        assert_eq!(summary.hours_48.observed_signal_rate.denominator, 0);
+        assert_eq!(summary.hours_48.observed_signal_rate.value, None);
     }
 }

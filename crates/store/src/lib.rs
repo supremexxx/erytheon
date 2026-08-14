@@ -22,7 +22,8 @@ mod science;
 pub use bdiff::{BdiffImportIds, BdiffImportStart, BdiffPersistenceResult, BdiffTerminalState};
 pub use blue::{
     BlueEvidenceCaseRow, BlueEvidenceClaim, BlueEvidenceResult, BlueEvidenceSourceInput,
-    BlueForecastAlertRow, BlueForecastBulletinRow, BlueForecastContext,
+    BlueForecastAlertRow, BlueForecastBulletinRow, BlueForecastContext, BlueHorizonPerformance,
+    BluePerformanceSummary, BlueRateMetric,
 };
 pub use commune::{CommuneBoundary, CommuneCatalogEntry};
 pub use dataset::{

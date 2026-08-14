@@ -14,6 +14,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/overview", get(overview))
         .route("/bulletins", get(bulletins))
+        .route("/performance", get(performance))
         .route("/cases", get(cases))
         .route("/alerts", get(alerts))
         .route("/alerts/{id}", get(alert))
@@ -88,6 +89,30 @@ async fn bulletins(
     state
         .store()
         .list_blue_bulletins(query.limit.unwrap_or(30))
+        .await
+        .map(Json)
+        .map_err(database_error)
+}
+
+#[derive(Deserialize)]
+struct PerformanceQuery {
+    from: Option<chrono::NaiveDate>,
+    to: Option<chrono::NaiveDate>,
+}
+
+async fn performance(
+    State(state): State<AppState>,
+    Query(query): Query<PerformanceQuery>,
+) -> Result<Json<store::BluePerformanceSummary>, ApiError> {
+    if query.from.zip(query.to).is_some_and(|(from, to)| from > to) {
+        return Err(ApiError::bad_request(
+            "invalid_period",
+            "from must be earlier than or equal to to",
+        ));
+    }
+    state
+        .store()
+        .blue_performance_summary(query.from, query.to)
         .await
         .map(Json)
         .map_err(database_error)
