@@ -40,7 +40,7 @@ const DEFAULT_SCIENCE_CONSOLE_ENABLED: &str = "false";
 const DEFAULT_CLIENT_CONSOLE_ENABLED: &str = "false";
 const DEFAULT_BLUE_CENTER_ENABLED: &str = "false";
 const DEFAULT_BLUE_AI_EVIDENCE_ENABLED: &str = "false";
-const DEFAULT_BLUE_OPENAI_MODEL: &str = "gpt-5.6-luna";
+const DEFAULT_BLUE_OPENAI_MODEL: &str = "gpt-4o-mini";
 
 #[derive(Clone, Debug)]
 #[allow(clippy::struct_excessive_bools)]
