@@ -133,6 +133,7 @@ async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
     // order. Every dependent's own tables are empty here, so each
     // rollback below is authorized and safe.
     for down in [
+        "0027_blue_staged_evidence.down.sql",
         "0026_blue_ai_evidence.down.sql",
         "0025_blue_forecast_evidence_foundation.down.sql",
         "0024_daily_dense_scientific_archive.down.sql",
@@ -172,10 +173,10 @@ async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
     pool.close().await;
 
     // --- Restore via SQLx, keeping _sqlx_migrations consistent ---
-    // 13, 15, 19, 20, 21, and 22 all had their objects dropped above; every
-    // tracking row must be cleared so SQLx re-applies all five forward
-    // migrations, in order, on the next connect.
-    for version in [13, 15, 19, 20, 21, 22] {
+    // Every migration whose objects were dropped above must have its
+    // tracking row cleared so SQLx re-applies the full migration dependency
+    // chain, in order, on the next connect.
+    for version in [13, 15, 19, 20, 21, 22, 24, 25, 26, 27] {
         mark_migration_pending_again(&temp_url, version).await;
     }
     Store::connect(&temp_url)
@@ -219,6 +220,7 @@ async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
     // out of the way again so the assertion below exercises 0013's own
     // "data exists" guard, not the out-of-order guard.
     for down in [
+        "0027_blue_staged_evidence.down.sql",
         "0026_blue_ai_evidence.down.sql",
         "0025_blue_forecast_evidence_foundation.down.sql",
         "0024_daily_dense_scientific_archive.down.sql",
@@ -706,12 +708,12 @@ async fn rollback_0016_refuses_and_preserves_a_registered_candidate() {
     drop_temp_database(&admin_url, db_name).await;
 }
 
-/// `0026`-`0018` must roll back only in strict reverse order
+/// `0027`-`0018` must roll back only in strict reverse order
 /// on an empty database, and each rollback must refuse while a later
 /// migration's objects still exist.
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
-async fn rollback_0026_to_0018_succeeds_only_in_reverse_order_when_empty() {
+async fn rollback_0027_to_0018_succeeds_only_in_reverse_order_when_empty() {
     dotenvy::dotenv().ok();
     let Ok(admin_url) = std::env::var("DATABASE_URL") else {
         eprintln!("skipping database integration test: DATABASE_URL is not configured");
@@ -732,6 +734,16 @@ async fn rollback_0026_to_0018_succeeds_only_in_reverse_order_when_empty() {
     assert!(
         table_exists(&pool, "observability", "scientific_snapshots").await,
         "out-of-order rollback must preserve 0019's manifest table"
+    );
+
+    let rollback_0027 = run_psql(
+        &temp_url,
+        &migrations_root().join("0027_blue_staged_evidence.down.sql"),
+    );
+    assert!(
+        rollback_0027.status.success(),
+        "0027 rollback must succeed before 0026: {}",
+        String::from_utf8_lossy(&rollback_0027.stderr)
     );
 
     let rollback_0026 = run_psql(
@@ -849,6 +861,7 @@ async fn rollback_0018_refuses_and_preserves_populated_system_snapshots() {
     let pool = PgPool::connect(&temp_url).await.expect("pool");
 
     for down in [
+        "0027_blue_staged_evidence.down.sql",
         "0026_blue_ai_evidence.down.sql",
         "0025_blue_forecast_evidence_foundation.down.sql",
         "0024_daily_dense_scientific_archive.down.sql",
