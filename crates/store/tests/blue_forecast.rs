@@ -205,6 +205,8 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
         "the provisional review starts three hours after the +24 h horizon"
     );
     assert_eq!(cases[0].review_stage, "hours_24");
+    assert_eq!(cases[0].stage_attempt_count, 0);
+    assert!(cases[0].next_attempt_at.is_none());
     assert_eq!(cases[0].provisional_verdict, "pending");
     let serialized = serde_json::to_value(&first).expect("serialize bulletin");
     assert!(
