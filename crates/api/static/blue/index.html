@@ -19,6 +19,7 @@
             <button id="view-analysis" type="button" role="tab" aria-selected="true">Analyse</button>
             <button id="view-table" type="button" role="tab" aria-selected="false">Tableau</button>
             <button id="view-performance" type="button" role="tab" aria-selected="false">Performance</button>
+            <button id="view-ground-truth" type="button" role="tab" aria-selected="false">Terrain</button>
           </div>
           <label class="search"><span>Rechercher une commune</span><input id="search" type="search" placeholder="Commune, département ou INSEE" autocomplete="off"></label>
           <label class="status-filter"><span>Validation</span><select id="verdict"><option value="">Tous les états</option><option value="pending">En attente</option><option value="confirmed">Confirmé</option><option value="probable">Probable</option><option value="signal_observed">Signal observé</option><option value="inconclusive">Non concluant</option><option value="no_evidence_found">Aucune preuve</option></select></label>
@@ -178,6 +179,42 @@
         </section>
 
         <footer class="stats-notes performance-notes"><div><strong>Méthode</strong><p id="performance-methodology">—</p></div><time id="performance-generated-at"></time></footer>
+      </section>
+
+      <section id="ground-truth-view" class="performance-view ground-truth-view" aria-labelledby="ground-truth-title" hidden>
+        <header class="stats-head performance-head">
+          <div>
+            <span>BLUE GROUND TRUTH</span>
+            <h1 id="ground-truth-title">Prévisions face aux observations réelles</h1>
+            <p>Rapprochement automatique de toute l’archive communale, y compris les communes hors du Top 20.</p>
+          </div>
+        </header>
+
+        <section class="performance-banner">
+          <div><span>NIVEAU DE MATURITÉ</span><strong id="gt-maturity">—</strong><p id="gt-interpretation">Chargement du registre d’observation…</p></div>
+          <dl><div><dt>Observations</dt><dd id="gt-observations">—</dd></div><div><dt>Comparaisons</dt><dd id="gt-comparisons">—</dd></div><div><dt>Actualisation</dt><dd id="gt-refresh">—</dd></div></dl>
+        </section>
+
+        <section class="stats-summary ground-truth-summary" aria-label="Synthèse Ground Truth">
+          <article><span>Signaux terrain</span><strong id="gt-signals">—</strong><small>fenêtres observées</small></article>
+          <article><span>Événements confirmés</span><strong id="gt-confirmed">—</strong><small>registre officiel différé</small></article>
+          <article><span>Signaux couverts</span><strong id="gt-covered">—</strong><small>score BLUE ≥ seuil</small></article>
+          <article><span>Signaux sous le seuil</span><strong id="gt-below">—</strong><small>cas à étudier</small></article>
+          <article><span>Couverture des signaux</span><strong id="gt-coverage-rate">—</strong><small>indicateur exploratoire</small></article>
+          <article><span>Rappel confirmé</span><strong id="gt-recall">—</strong><small>uniquement vérité confirmée</small></article>
+        </section>
+
+        <section class="performance-grid ground-truth-explainers">
+          <article class="topk-panel"><header><span>LECTURE CORRECTE</span><h2>Deux niveaux de vérité volontairement séparés</h2></header><p class="ground-truth-copy"><strong>Signal terrain</strong> : une chaleur a été détectée dans la commune ; cela mérite une comparaison, mais ne prouve pas encore un incendie. <strong>Événement confirmé</strong> : un incendie enregistré peut mesurer une réussite ou un incendie manqué.</p></article>
+          <article class="limits-panel"><header><span>LIMITES ACTUELLES</span><h2>Ce qui reste indéterminé</h2></header><ul id="gt-limitations"></ul></article>
+        </section>
+
+        <section class="history-panel">
+          <header><span>RAPPROCHEMENTS RÉCENTS</span><h2>Ce que BLUE avait annoncé avant l’observation</h2></header>
+          <div class="forecast-table-wrap"><table class="forecast-table ground-truth-table"><thead><tr><th>Observation</th><th>Commune</th><th>Nature</th><th class="numeric">Signaux</th><th>Bulletin</th><th>Horizon</th><th class="numeric">Score BLUE</th><th>Lecture</th><th class="numeric">Anticipation</th></tr></thead><tbody id="ground-truth-body"></tbody></table></div>
+        </section>
+
+        <footer class="stats-notes performance-notes"><div><strong>Méthode</strong><p>Chaque observation est rapprochée du bulletin qui existait avant elle. Les scores proviennent de l’archive complète immuable des communes.</p></div><time id="gt-generated-at"></time></footer>
       </section>
     </div>
     <div id="error" class="error" role="alert" hidden></div>

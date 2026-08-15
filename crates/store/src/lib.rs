@@ -11,6 +11,7 @@ use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 
 mod bdiff;
 mod blue;
+mod blue_ground_truth;
 mod commune;
 mod dataset;
 mod firms;
@@ -24,6 +25,9 @@ pub use blue::{
     BlueEvidenceCaseRow, BlueEvidenceClaim, BlueEvidenceResult, BlueEvidenceSourceInput,
     BlueForecastAlertRow, BlueForecastBulletinRow, BlueForecastContext, BlueHorizonPerformance,
     BluePerformanceSummary, BlueRateMetric,
+};
+pub use blue_ground_truth::{
+    BlueGroundTruthMatchRow, BlueGroundTruthRefresh, BlueGroundTruthSummary,
 };
 pub use commune::{CommuneBoundary, CommuneCatalogEntry};
 pub use dataset::{

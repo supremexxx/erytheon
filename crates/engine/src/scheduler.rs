@@ -44,6 +44,7 @@ pub fn spawn(
 ) {
     tokio::spawn(poll_firms(config.clone(), store.clone(), grid));
     tokio::spawn(poll_blue_evidence(config.clone(), store.clone()));
+    tokio::spawn(poll_blue_ground_truth(store.clone()));
     tokio::spawn(poll_forecast(
         config,
         store.clone(),
@@ -57,6 +58,23 @@ pub fn spawn(
     // Scientific FWI history is archived directly after the first complete
     // nowcast of each UTC day. The legacy weekly full-row pilot remains
     // available through controlled tooling but is no longer scheduled.
+}
+
+async fn poll_blue_ground_truth(store: Store) {
+    let mut ticker = interval(FORECAST_POLL_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        match store.refresh_blue_ground_truth().await {
+            Ok(refresh) => tracing::info!(
+                satellite_windows = refresh.satellite_windows_upserted,
+                confirmed_ignitions = refresh.confirmed_ignitions_upserted,
+                comparisons = refresh.comparisons_inserted,
+                "BLUE Ground Truth refresh complete"
+            ),
+            Err(error) => tracing::error!(%error, "BLUE Ground Truth refresh failed safely"),
+        }
+    }
 }
 
 async fn poll_firms(config: Config, store: Store, grid: H3Grid) {

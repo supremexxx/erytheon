@@ -208,6 +208,51 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
     assert_eq!(cases[0].stage_attempt_count, 0);
     assert!(cases[0].next_attempt_at.is_none());
     assert_eq!(cases[0].provisional_verdict, "pending");
+
+    for (minute, frp) in [(5_i64, 3.4_f32), (18_i64, 7.2_f32)] {
+        sqlx::query(
+            "INSERT INTO observations(source,kind,h3,observed_at,payload,dedupe_key)
+             VALUES('firms','active_fire',$1,$2,$3,$4)",
+        )
+        .bind(cells[0])
+        .bind(computed_at + Duration::hours(12) + Duration::minutes(minute))
+        .bind(json!({"frp":frp,"confidence":"h"}))
+        .bind(format!("ground-truth-{minute}"))
+        .execute(&pool)
+        .await
+        .expect("terrain signal");
+    }
+    let refresh = store
+        .refresh_blue_ground_truth()
+        .await
+        .expect("refresh Ground Truth");
+    assert_eq!(refresh.satellite_windows_upserted, 1);
+    assert_eq!(refresh.confirmed_ignitions_upserted, 0);
+    assert_eq!(refresh.comparisons_inserted, 2);
+    let ground_truth = store
+        .blue_ground_truth_summary()
+        .await
+        .expect("Ground Truth summary");
+    assert_eq!(ground_truth.satellite_signal_windows, 1);
+    assert_eq!(ground_truth.confirmed_ignitions, 0);
+    assert_eq!(ground_truth.forecast_comparisons, 2);
+    assert_eq!(ground_truth.signal_covered, 2);
+    assert_eq!(ground_truth.signal_below_threshold, 0);
+    assert!(
+        ground_truth
+            .signal_coverage_rate
+            .is_some_and(|value| (value - 1.0).abs() < f64::EPSILON)
+    );
+    assert_eq!(ground_truth.confirmed_recall, None);
+    assert_eq!(ground_truth.recent_matches.len(), 2);
+    let replay_refresh = store
+        .refresh_blue_ground_truth()
+        .await
+        .expect("idempotent Ground Truth refresh");
+    assert_eq!(replay_refresh.satellite_windows_upserted, 0);
+    assert_eq!(replay_refresh.confirmed_ignitions_upserted, 0);
+    assert_eq!(replay_refresh.comparisons_inserted, 0);
+
     let serialized = serde_json::to_value(&first).expect("serialize bulletin");
     assert!(
         serialized.get("forecast_source").is_none(),

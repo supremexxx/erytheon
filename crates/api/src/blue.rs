@@ -15,9 +15,21 @@ pub fn router() -> Router<AppState> {
         .route("/overview", get(overview))
         .route("/bulletins", get(bulletins))
         .route("/performance", get(performance))
+        .route("/ground-truth", get(ground_truth))
         .route("/cases", get(cases))
         .route("/alerts", get(alerts))
         .route("/alerts/{id}", get(alert))
+}
+
+async fn ground_truth(
+    State(state): State<AppState>,
+) -> Result<Json<store::BlueGroundTruthSummary>, ApiError> {
+    state
+        .store()
+        .blue_ground_truth_summary()
+        .await
+        .map(Json)
+        .map_err(database_error)
 }
 
 #[derive(Serialize)]
