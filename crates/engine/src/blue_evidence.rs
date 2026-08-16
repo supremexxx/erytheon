@@ -68,6 +68,8 @@ impl BlueEvidenceReviewer {
             "department_code": claim.department_code,
             "blue_daily_rank": claim.daily_rank,
             "blue_selection_score": claim.selection_score,
+            "selection_reason": claim.selection_reason,
+            "trigger_observed_at": claim.trigger_observed_at,
             "review_horizon": claim.review_horizon,
             "forecast_24h": {
                 "index": claim.alert_24h_index,
@@ -82,7 +84,7 @@ impl BlueEvidenceReviewer {
             "model": self.model,
             "tools": [{"type": "web_search"}],
             "include": ["web_search_call.action.sources"],
-            "instructions": "Tu es le vérificateur de preuves de BLUE. Recherche sur le web des traces d'incendie ou de feu de végétation pour la commune dans la fenêtre qui commence à issued_at et se termine au valid_at du review_horizon demandé. Pour hours_24, produis un constat provisoire limité aux premières 24 heures. Pour hours_48, produis le constat final couvrant les 48 heures complètes, même si une première recherche a déjà eu lieu. Privilégie les sources datées et localisées (autorités, secours, presse locale crédible). Ne considère jamais une absence de résultat comme la preuve qu'aucun incendie n'a eu lieu. N'invente aucune source. Un verdict confirmed exige une preuve directe avec URL et concordance claire de lieu et de date; probable exige au moins une source crédible mais une concordance imparfaite; signal_observed exige une source réelle mais insuffisante; no_evidence_found signifie seulement que la recherche n'a rien trouvé et doit rester non concluant statistiquement. Réponds en français, sobrement.",
+            "instructions": "Tu es le vérificateur de preuves de BLUE. Recherche sur le web des traces d'incendie ou de feu de végétation pour la commune dans la fenêtre qui commence à issued_at et se termine au valid_at du review_horizon demandé. Lorsqu'un trigger_observed_at est fourni, il s'agit d'une recherche réactive déclenchée par un signal thermique: cherche immédiatement une confirmation indépendante sans jamais considérer le signal seul comme un incendie. Pour hours_24, produis un constat provisoire limité aux premières 24 heures. Pour hours_48, produis le constat final couvrant les 48 heures complètes, même si une première recherche a déjà eu lieu. Privilégie les sources datées et localisées (autorités, secours, presse locale crédible). Ne considère jamais une absence de résultat comme la preuve qu'aucun incendie n'a eu lieu. N'invente aucune source. Un verdict confirmed exige une preuve directe avec URL et concordance claire de lieu et de date; probable exige au moins une source crédible mais une concordance imparfaite; signal_observed exige une source réelle mais insuffisante; no_evidence_found signifie seulement que la recherche n'a rien trouvé et doit rester non concluant statistiquement. Tous les champs de date doivent être soit null, soit au format RFC3339 complet avec fuseau horaire, par exemple 2026-08-16T01:30:00+02:00. N'utilise jamais une date en langage naturel. Réponds en français, sobrement.",
             "input": [{
                 "role": "user",
                 "content": format!("Vérifie ce dossier de prévision BLUE après échéance. Données du dossier: {case_data}")
@@ -104,7 +106,7 @@ fn evidence_schema() -> Value {
                 "verdict": {"type": "string", "enum": ["signal_observed","probable","confirmed","no_evidence_found","inconclusive"]},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                 "summary": {"type": "string", "maxLength": 1200},
-                "observed_event_at": {"type": ["string","null"]},
+                "observed_event_at": {"type": ["string","null"], "description": "Date RFC3339 complete avec fuseau horaire, ou null"},
                 "observed_location": {"type": ["string","null"], "maxLength": 300},
                 "evidence": {
                     "type": "array", "maxItems": 8,
@@ -113,7 +115,7 @@ fn evidence_schema() -> Value {
                         "properties": {
                             "url": {"type": "string"},
                             "title": {"type": "string", "maxLength": 300},
-                            "published_at": {"type": ["string","null"]},
+                            "published_at": {"type": ["string","null"], "description": "Date RFC3339 complete avec fuseau horaire, ou null"},
                             "excerpt": {"type": ["string","null"], "maxLength": 500},
                             "relation_strength": {"type": "string", "enum": ["direct","corroborating","weak"]}
                         },
@@ -186,13 +188,7 @@ fn parse_response(body: &str) -> Result<BlueEvidenceResult, BlueEvidenceError> {
         value => value,
     }
     .to_owned();
-    let observed_event_at = generated
-        .observed_event_at
-        .as_deref()
-        .map(DateTime::parse_from_rfc3339)
-        .transpose()
-        .map_err(|_| BlueEvidenceError::InvalidOutput("invalid observed_event_at".to_owned()))?
-        .map(|value| value.with_timezone(&Utc));
+    let observed_event_at = parse_optional_datetime(generated.observed_event_at.as_deref());
     let web_search_count = raw
         .get("output")
         .and_then(Value::as_array)
@@ -242,13 +238,7 @@ fn normalize_source(
         .host_str()
         .ok_or_else(|| BlueEvidenceError::InvalidOutput("evidence URL has no host".to_owned()))?
         .to_owned();
-    let published_at = source
-        .published_at
-        .as_deref()
-        .map(DateTime::parse_from_rfc3339)
-        .transpose()
-        .map_err(|_| BlueEvidenceError::InvalidOutput("invalid source published_at".to_owned()))?
-        .map(|value| value.with_timezone(&Utc));
+    let published_at = parse_optional_datetime(source.published_at.as_deref());
     Ok(BlueEvidenceSourceInput {
         url: parsed.to_string().chars().take(2_000).collect(),
         title: source.title.chars().take(300).collect(),
@@ -259,6 +249,14 @@ fn normalize_source(
         domain,
         relation_strength: source.relation_strength,
     })
+}
+
+fn parse_optional_datetime(value: Option<&str>) -> Option<DateTime<Utc>> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -312,5 +310,26 @@ mod tests {
         .to_string();
         let result = parse_response(&body).expect("valid response");
         assert_eq!(result.verdict, "inconclusive");
+    }
+
+    #[test]
+    fn malformed_optional_dates_do_not_discard_valid_evidence() {
+        let body = serde_json::json!({
+            "id":"resp_date_repair","output":[{"type":"message","content":[{
+                "type":"output_text","text":serde_json::json!({
+                    "verdict":"confirmed","confidence":0.92,"summary":"Feu confirme.",
+                    "observed_event_at":"dans la nuit du 15 au 16 aout",
+                    "observed_location":"Montherme",
+                    "evidence":[{"url":"https://example.org/montherme","title":"Feu local",
+                        "published_at":"16 aout 2026","excerpt":"Intervention nocturne.",
+                        "relation_strength":"direct"}]
+                }).to_string()
+            }]}]
+        })
+        .to_string();
+        let result = parse_response(&body).expect("optional malformed dates are omitted");
+        assert_eq!(result.verdict, "confirmed");
+        assert_eq!(result.observed_event_at, None);
+        assert_eq!(result.sources[0].published_at, None);
     }
 }

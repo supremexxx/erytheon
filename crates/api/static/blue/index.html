@@ -198,6 +198,7 @@
         <section class="stats-summary ground-truth-summary" aria-label="Synthèse Ground Truth">
           <article><span>Signaux terrain</span><strong id="gt-signals">—</strong><small>fenêtres observées</small></article>
           <article><span>Événements confirmés</span><strong id="gt-confirmed">—</strong><small>registre officiel différé</small></article>
+          <article><span>Confirmations vérifiées</span><strong id="gt-verified">—</strong><small>preuves indépendantes archivées</small></article>
           <article><span>Signaux couverts</span><strong id="gt-covered">—</strong><small>score BLUE ≥ seuil</small></article>
           <article><span>Signaux sous le seuil</span><strong id="gt-below">—</strong><small>cas à étudier</small></article>
           <article><span>Couverture des signaux</span><strong id="gt-coverage-rate">—</strong><small>indicateur exploratoire</small></article>
@@ -207,6 +208,11 @@
         <section class="performance-grid ground-truth-explainers">
           <article class="topk-panel"><header><span>LECTURE CORRECTE</span><h2>Deux niveaux de vérité volontairement séparés</h2></header><p class="ground-truth-copy"><strong>Signal terrain</strong> : une chaleur a été détectée dans la commune ; cela mérite une comparaison, mais ne prouve pas encore un incendie. <strong>Événement confirmé</strong> : un incendie enregistré peut mesurer une réussite ou un incendie manqué.</p></article>
           <article class="limits-panel"><header><span>LIMITES ACTUELLES</span><h2>Ce qui reste indéterminé</h2></header><ul id="gt-limitations"></ul></article>
+        </section>
+
+        <section class="history-panel">
+          <header><span>CAS VALIDÉS</span><h2>Réussites BLUE documentées</h2></header>
+          <div class="forecast-table-wrap"><table class="forecast-table confirmation-table"><thead><tr><th>Événement</th><th>Commune</th><th>Niveau de preuve</th><th class="numeric">Score +24 h</th><th class="numeric">Score +48 h</th><th>Source archivée</th><th>Vérification</th></tr></thead><tbody id="ground-truth-confirmations-body"></tbody></table></div>
         </section>
 
         <section class="history-panel">

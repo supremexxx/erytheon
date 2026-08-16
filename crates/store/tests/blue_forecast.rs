@@ -78,16 +78,20 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
             insee_code,name,boundary,department_code,region_code,source_version,source_checksum)
          VALUES('31490','Saint-Jory',
             '{\"type\":\"Polygon\",\"coordinates\":[[[1.35,43.75],[1.40,43.75],[1.40,43.80],[1.35,43.80],[1.35,43.75]]]}',
-            '31','76','test-v1','catalog-checksum')",
+            '31','76','test-v1','catalog-checksum'),
+           ('82125','Montech',
+            '{\"type\":\"Polygon\",\"coordinates\":[[[1.20,43.90],[1.25,43.90],[1.25,43.95],[1.20,43.95],[1.20,43.90]]]}',
+            '82','76','test-v1','catalog-checksum')",
     )
     .execute(&pool)
     .await
     .expect("commune");
-    for cell in cells {
+    for (cell, insee_code) in cells.into_iter().zip(["31490", "82125"]) {
         sqlx::query(
             "INSERT INTO reference.commune_h3_cells(insee_code,h3,h3_resolution)
-             VALUES('31490',$1,8)",
+             VALUES($1,$2,8)",
         )
+        .bind(insee_code)
         .bind(cell)
         .execute(&pool)
         .await
@@ -158,15 +162,15 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
     assert_eq!(first.model_version_id, model_id);
     assert_eq!(first.forecast_cell_count, 2);
     assert_eq!(first.mapped_cell_count, 2);
-    assert_eq!(first.commune_count, 1);
-    assert_eq!((first.alerts_24h, first.alerts_48h), (1, 1));
+    assert_eq!(first.commune_count, 2);
+    assert_eq!((first.alerts_24h, first.alerts_48h), (2, 2));
     assert_eq!(first.checksum.as_deref().map(str::len), Some(64));
 
     let alerts = store
         .list_blue_alerts(&first.id, None, 10)
         .await
         .expect("alerts");
-    assert_eq!(alerts.len(), 2);
+    assert_eq!(alerts.len(), 4);
     assert!(
         alerts
             .iter()
@@ -175,18 +179,19 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
     assert!(
         alerts
             .iter()
-            .all(|alert| alert.commune_name == "Saint-Jory")
+            .any(|alert| alert.commune_name == "Saint-Jory")
     );
+    assert!(alerts.iter().any(|alert| alert.commune_name == "Montech"));
     assert_eq!(
         store
-            .ensure_blue_evidence_cases(&first.id, 20)
+            .ensure_blue_evidence_cases(&first.id, 1)
             .await
-            .expect("create top selection"),
+            .expect("create proactive selection"),
         1
     );
     assert_eq!(
         store
-            .ensure_blue_evidence_cases(&first.id, 20)
+            .ensure_blue_evidence_cases(&first.id, 1)
             .await
             .expect("selection is idempotent"),
         0
@@ -197,6 +202,8 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
         .expect("list evidence cases");
     assert_eq!(cases.len(), 1, "+24 h and +48 h share one commune case");
     assert_eq!(cases[0].daily_rank, 1);
+    assert_eq!(cases[0].commune_name, "Montech");
+    assert_eq!(cases[0].selection_reason, "national_top");
     assert!(cases[0].alert_24h_id.is_some());
     assert!(cases[0].alert_48h_id.is_some());
     assert_eq!(
@@ -229,6 +236,22 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
     assert_eq!(refresh.satellite_windows_upserted, 1);
     assert_eq!(refresh.confirmed_ignitions_upserted, 0);
     assert_eq!(refresh.comparisons_inserted, 2);
+    assert_eq!(
+        store
+            .ensure_blue_reactive_evidence_cases(&first.id)
+            .await
+            .expect("signal-triggered evidence selection"),
+        1
+    );
+    let cases = store
+        .list_blue_evidence_cases(&first.id)
+        .await
+        .expect("list proactive and reactive evidence cases");
+    assert_eq!(cases.len(), 2);
+    assert_eq!(cases[1].commune_name, "Saint-Jory");
+    assert_eq!(cases[1].selection_reason, "reactive_signal");
+    assert_eq!(cases[1].review_stage, "hours_24");
+    assert!(cases[1].research_after <= Utc::now());
     let ground_truth = store
         .blue_ground_truth_summary()
         .await
@@ -268,7 +291,7 @@ async fn daily_blue_bulletin_is_complete_idempotent_private_and_immutable() {
     .fetch_one(&pool)
     .await
     .expect("compact archive");
-    assert_eq!(archive_bytes, (4, 4, 4, 4));
+    assert_eq!(archive_bytes, (8, 8, 8, 8));
     let mutation =
         sqlx::query("UPDATE blue.forecast_alerts SET alert_index=0.1 WHERE bulletin_id=$1::uuid")
             .bind(&first.id)

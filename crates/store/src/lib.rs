@@ -27,7 +27,8 @@ pub use blue::{
     BluePerformanceSummary, BlueRateMetric,
 };
 pub use blue_ground_truth::{
-    BlueGroundTruthMatchRow, BlueGroundTruthRefresh, BlueGroundTruthSummary,
+    BlueGroundTruthConfirmationRow, BlueGroundTruthMatchRow, BlueGroundTruthRefresh,
+    BlueGroundTruthSummary,
 };
 pub use commune::{CommuneBoundary, CommuneCatalogEntry};
 pub use dataset::{

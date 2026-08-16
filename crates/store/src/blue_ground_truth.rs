@@ -15,6 +15,7 @@ pub struct BlueGroundTruthSummary {
     pub observation_count: i64,
     pub satellite_signal_windows: i64,
     pub confirmed_ignitions: i64,
+    pub verified_confirmations: i64,
     pub forecast_comparisons: i64,
     pub signal_covered: i64,
     pub signal_below_threshold: i64,
@@ -23,8 +24,27 @@ pub struct BlueGroundTruthSummary {
     pub signal_coverage_rate: Option<f64>,
     pub confirmed_recall: Option<f64>,
     pub recent_matches: Vec<BlueGroundTruthMatchRow>,
+    pub recent_confirmations: Vec<BlueGroundTruthConfirmationRow>,
     pub interpretation: &'static str,
     pub limitations: Vec<&'static str>,
+}
+
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
+pub struct BlueGroundTruthConfirmationRow {
+    pub id: String,
+    pub bulletin_id: String,
+    pub bulletin_date: NaiveDate,
+    pub insee_code: String,
+    pub commune_name: String,
+    pub event_date: NaiveDate,
+    pub event_started_at: Option<DateTime<Utc>>,
+    pub evidence_level: String,
+    pub source_url: String,
+    pub source_title: String,
+    pub source_published_on: NaiveDate,
+    pub verified_at: DateTime<Utc>,
+    pub forecast_score_24h: Option<f32>,
+    pub forecast_score_48h: Option<f32>,
 }
 
 #[derive(Clone, Debug, Serialize, sqlx::FromRow)]
@@ -78,6 +98,7 @@ struct GroundTruthCounts {
     observation_count: i64,
     satellite_signal_windows: i64,
     confirmed_ignitions: i64,
+    verified_confirmations: i64,
     forecast_comparisons: i64,
     signal_covered: i64,
     signal_below_threshold: i64,
@@ -272,6 +293,7 @@ impl Store {
                 (SELECT COUNT(*) FROM blue.ground_truth_observations) observation_count,
                 (SELECT COUNT(*) FROM blue.ground_truth_observations WHERE evidence_class='satellite_signal') satellite_signal_windows,
                 (SELECT COUNT(*) FROM blue.ground_truth_observations WHERE evidence_class='confirmed_ignition') confirmed_ignitions,
+                (SELECT COUNT(*) FROM blue.ground_truth_confirmations) verified_confirmations,
                 COUNT(*) forecast_comparisons,
                 COUNT(*) FILTER (WHERE classification='signal_covered') signal_covered,
                 COUNT(*) FILTER (WHERE classification='signal_below_threshold') signal_below_threshold,
@@ -303,12 +325,29 @@ impl Store {
             sqlx::query_scalar("SELECT MAX(completed_at) FROM blue.ground_truth_refreshes")
                 .fetch_one(&self.pool)
                 .await?;
+        let recent_confirmations = sqlx::query_as(
+            "SELECT c.id::text,c.bulletin_id::text,b.bulletin_date,c.insee_code,
+                cb.name commune_name,c.event_date,c.event_started_at,c.evidence_level,
+                c.source_url,c.source_title,c.source_published_on,c.verified_at,
+                MAX(a.alert_index) FILTER (WHERE a.horizon='hours_24') forecast_score_24h,
+                MAX(a.alert_index) FILTER (WHERE a.horizon='hours_48') forecast_score_48h
+             FROM blue.ground_truth_confirmations c
+             JOIN blue.forecast_bulletins b ON b.id=c.bulletin_id
+             JOIN reference.commune_boundaries cb ON cb.insee_code=c.insee_code
+             LEFT JOIN blue.forecast_alerts a ON a.bulletin_id=c.bulletin_id
+                AND a.insee_code=c.insee_code
+             GROUP BY c.id,b.bulletin_date,cb.name
+             ORDER BY c.event_date DESC,c.verified_at DESC LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await?;
         Ok(BlueGroundTruthSummary {
             generated_at: Utc::now(),
             last_refresh_at,
             observation_count: counts.observation_count,
             satellite_signal_windows: counts.satellite_signal_windows,
             confirmed_ignitions: counts.confirmed_ignitions,
+            verified_confirmations: counts.verified_confirmations,
             forecast_comparisons: counts.forecast_comparisons,
             signal_covered: counts.signal_covered,
             signal_below_threshold: counts.signal_below_threshold,
@@ -317,6 +356,7 @@ impl Store {
             signal_coverage_rate: counts.signal_coverage_rate,
             confirmed_recall: counts.confirmed_recall,
             recent_matches,
+            recent_confirmations,
             interpretation: "Les signaux satellitaires indiquent une chaleur détectée, pas un incendie confirmé. Seuls les événements confirmés peuvent mesurer le rappel scientifique.",
             limitations: vec![
                 "Une absence de signal ne prouve jamais une absence d'incendie.",

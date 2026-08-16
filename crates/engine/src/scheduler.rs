@@ -66,12 +66,29 @@ async fn poll_blue_ground_truth(store: Store) {
     loop {
         ticker.tick().await;
         match store.refresh_blue_ground_truth().await {
-            Ok(refresh) => tracing::info!(
-                satellite_windows = refresh.satellite_windows_upserted,
-                confirmed_ignitions = refresh.confirmed_ignitions_upserted,
-                comparisons = refresh.comparisons_inserted,
-                "BLUE Ground Truth refresh complete"
-            ),
+            Ok(refresh) => {
+                let reactive_cases = match store.latest_blue_bulletin().await {
+                    Ok(Some(bulletin)) => store
+                        .ensure_blue_reactive_evidence_cases(&bulletin.id)
+                        .await
+                        .unwrap_or_else(|error| {
+                            tracing::error!(%error, bulletin_id = %bulletin.id, "BLUE reactive evidence selection failed safely");
+                            0
+                        }),
+                    Ok(None) => 0,
+                    Err(error) => {
+                        tracing::error!(%error, "latest BLUE bulletin unavailable for reactive evidence");
+                        0
+                    }
+                };
+                tracing::info!(
+                    satellite_windows = refresh.satellite_windows_upserted,
+                    confirmed_ignitions = refresh.confirmed_ignitions_upserted,
+                    comparisons = refresh.comparisons_inserted,
+                    reactive_cases,
+                    "BLUE Ground Truth refresh complete"
+                );
+            }
             Err(error) => tracing::error!(%error, "BLUE Ground Truth refresh failed safely"),
         }
     }
@@ -236,7 +253,7 @@ async fn poll_forecast(
                                     alerts_24h = bulletin.alerts_24h,
                                     alerts_48h = bulletin.alerts_48h,
                                     newly_selected_cases = selected,
-                                    "BLUE daily forecast bulletin and top-20 evidence selection available"
+                                    "BLUE daily forecast bulletin and diversified evidence selection available"
                                 ),
                                 Err(error) => tracing::error!(
                                     %error,
@@ -293,7 +310,7 @@ async fn poll_blue_evidence(config: Config, store: Store) {
             None
         }
     } else {
-        tracing::info!("BLUE top-20 selection enabled; automatic evidence review is disabled");
+        tracing::info!("BLUE diversified selection enabled; automatic evidence review is disabled");
         None
     };
     let mut ticker = interval(FORECAST_POLL_INTERVAL);
@@ -309,7 +326,7 @@ async fn poll_blue_evidence(config: Config, store: Store) {
             }
         };
         if let Err(error) = store.ensure_blue_evidence_cases(&bulletin.id, 20).await {
-            tracing::error!(%error, bulletin_id = %bulletin.id, "BLUE top-20 selection failed");
+            tracing::error!(%error, bulletin_id = %bulletin.id, "BLUE diversified selection failed");
             continue;
         }
         let Some(reviewer) = &reviewer else {

@@ -1,6 +1,6 @@
 //! Immutable BLUE daily forecast bulletins and read-only evidence views.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use chrono::{DateTime, NaiveDate, TimeZone as _, Utc};
 use serde::Serialize;
@@ -11,6 +11,11 @@ use crate::{Store, StoreError};
 const BULLETIN_HOUR_UTC: u32 = 6;
 const ALERT_THRESHOLD: f32 = 0.65;
 const CRITICAL_THRESHOLD: f32 = 0.75;
+const PROACTIVE_EVIDENCE_LIMIT: usize = 16;
+const NATIONAL_EVIDENCE_QUOTA: usize = 6;
+const TERRITORIAL_EVIDENCE_QUOTA: usize = 6;
+const ACCELERATION_EVIDENCE_QUOTA: usize = 4;
+const REACTIVE_EVIDENCE_LIMIT: i64 = 4;
 
 #[derive(Clone, Debug)]
 pub struct BlueForecastContext {
@@ -78,6 +83,7 @@ pub struct BlueEvidenceCaseRow {
     pub department_code: Option<String>,
     pub daily_rank: i16,
     pub selection_score: f32,
+    pub selection_reason: String,
     pub alert_24h_id: Option<String>,
     pub alert_24h_index: Option<f32>,
     pub alert_24h_valid_at: Option<DateTime<Utc>>,
@@ -190,6 +196,8 @@ pub struct BlueEvidenceClaim {
     pub department_code: Option<String>,
     pub daily_rank: i16,
     pub selection_score: f32,
+    pub selection_reason: String,
+    pub trigger_observed_at: Option<DateTime<Utc>>,
     pub alert_24h_index: Option<f32>,
     pub alert_24h_valid_at: Option<DateTime<Utc>>,
     pub alert_48h_index: Option<f32>,
@@ -222,6 +230,20 @@ pub struct BlueEvidenceResult {
     pub output_tokens: Option<i64>,
     pub web_search_count: i64,
     pub sources: Vec<BlueEvidenceSourceInput>,
+}
+
+#[derive(Clone, Debug, sqlx::FromRow)]
+struct BlueEvidenceCandidate {
+    bulletin_id: String,
+    insee_code: String,
+    commune_name: String,
+    department_code: Option<String>,
+    selection_score: f32,
+    previous_score: Option<f32>,
+    alert_24h_id: Option<String>,
+    alert_48h_id: Option<String>,
+    research_24h: Option<DateTime<Utc>>,
+    research_48h: Option<DateTime<Utc>>,
 }
 
 const BULLETIN_COLUMNS: &str = "id::text,logical_id,bulletin_date,scheduled_for,issued_at,
@@ -600,8 +622,9 @@ impl Store {
         .map_err(StoreError::from)
     }
 
-    /// Ensures the deterministic, unique top-commune selection for a bulletin.
-    /// The full alert and forecast archives are deliberately left untouched.
+    /// Ensures a deterministic and geographically diversified proactive
+    /// selection for a bulletin. Four of the twenty daily slots remain
+    /// available for signal-triggered reactive reviews.
     ///
     /// # Errors
     ///
@@ -611,10 +634,25 @@ impl Store {
         bulletin_id: &str,
         limit: i64,
     ) -> Result<u64, StoreError> {
-        let result = sqlx::query(
-            "WITH per_commune AS (
+        let candidates: Vec<BlueEvidenceCandidate> = sqlx::query_as(
+            "WITH previous_bulletin AS (
+                SELECT previous.id
+                FROM blue.forecast_bulletins current
+                JOIN LATERAL (
+                    SELECT id FROM blue.forecast_bulletins
+                    WHERE status='published' AND issued_at<current.issued_at
+                    ORDER BY issued_at DESC LIMIT 1
+                ) previous ON TRUE
+                WHERE current.id=$1::uuid
+             ), previous_scores AS (
+                SELECT a.insee_code,MAX(a.alert_index) previous_score
+                FROM blue.forecast_alerts a
+                WHERE a.bulletin_id=(SELECT id FROM previous_bulletin)
+                GROUP BY a.insee_code
+             ), per_commune AS (
                 SELECT a.bulletin_id,a.insee_code,MAX(a.commune_name) commune_name,
                     MAX(a.department_code) department_code,MAX(a.alert_index) selection_score,
+                    MAX(p.previous_score) previous_score,
                     (array_agg(a.id ORDER BY a.alert_index DESC)
                         FILTER (WHERE a.horizon='hours_24'))[1] alert_24h_id,
                     (array_agg(a.id ORDER BY a.alert_index DESC)
@@ -622,26 +660,125 @@ impl Store {
                     MAX(a.valid_at) FILTER (WHERE a.horizon='hours_24') research_24h,
                     MAX(a.valid_at) FILTER (WHERE a.horizon='hours_48') research_48h
                 FROM blue.forecast_alerts a
+                LEFT JOIN previous_scores p ON p.insee_code=a.insee_code
                 WHERE a.bulletin_id=$1::uuid
                 GROUP BY a.bulletin_id,a.insee_code
+             )
+             SELECT bulletin_id::text,insee_code,commune_name,department_code,
+                selection_score,previous_score,alert_24h_id::text,alert_48h_id::text,
+                research_24h,research_48h
+             FROM per_commune",
+        )
+        .bind(bulletin_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let selected = select_blue_evidence_candidates(
+            &candidates,
+            usize::try_from(limit.clamp(1, 20)).unwrap_or(PROACTIVE_EVIDENCE_LIMIT),
+        );
+        let mut tx = self.pool.begin().await?;
+        let mut inserted = 0_u64;
+        for (position, (candidate, selection_reason)) in selected.into_iter().enumerate() {
+            let daily_rank = i16::try_from(position + 1).map_err(|_| {
+                StoreError::SnapshotContract("BLUE evidence rank overflow".to_owned())
+            })?;
+            inserted += sqlx::query(
+                "INSERT INTO blue.evidence_cases(
+                    bulletin_id,insee_code,commune_name,department_code,daily_rank,
+                    selection_score,selection_reason,alert_24h_id,alert_48h_id,
+                    research_after,review_stage)
+                 VALUES($1::uuid,$2,$3,$4,$5,$6,$7,$8::uuid,$9::uuid,
+                    COALESCE($10,$11)+INTERVAL '3 hours',
+                    CASE WHEN $8::uuid IS NOT NULL THEN 'hours_24' ELSE 'hours_48' END)
+                 ON CONFLICT(bulletin_id,insee_code) DO NOTHING",
+            )
+            .bind(&candidate.bulletin_id)
+            .bind(&candidate.insee_code)
+            .bind(&candidate.commune_name)
+            .bind(&candidate.department_code)
+            .bind(daily_rank)
+            .bind(candidate.selection_score)
+            .bind(selection_reason)
+            .bind(&candidate.alert_24h_id)
+            .bind(&candidate.alert_48h_id)
+            .bind(candidate.research_24h)
+            .bind(candidate.research_48h)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        }
+        tx.commit().await?;
+        Ok(inserted)
+    }
+
+    /// Adds at most four immediate reviews when a newly observed thermal
+    /// signal intersects a high-risk forecast outside the proactive sample.
+    /// The total daily evidence set remains capped at twenty cases.
+    ///
+    /// # Errors
+    ///
+    /// Returns a database error when reactive selection cannot be persisted.
+    pub async fn ensure_blue_reactive_evidence_cases(
+        &self,
+        bulletin_id: &str,
+    ) -> Result<u64, StoreError> {
+        let result = sqlx::query(
+            "WITH capacity AS (
+                SELECT GREATEST(0,20-COUNT(*))::bigint available,
+                    GREATEST(0,$2-COUNT(*) FILTER (
+                        WHERE selection_reason='reactive_signal'))::bigint reactive_available,
+                    COALESCE(MAX(daily_rank),0)::smallint current_rank
+                FROM blue.evidence_cases WHERE bulletin_id=$1::uuid
+             ), signal_candidates AS (
+                SELECT DISTINCT ON (o.insee_code)
+                    o.id observation_id,o.insee_code,o.commune_name,o.department_code,
+                    o.occurred_at,MAX(m.forecast_score) OVER (PARTITION BY o.insee_code) selection_score
+                FROM blue.ground_truth_matches m
+                JOIN blue.ground_truth_observations o ON o.id=m.observation_id
+                WHERE m.bulletin_id=$1::uuid AND o.evidence_class='satellite_signal'
+                  AND m.classification='signal_covered'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM blue.evidence_cases c
+                      WHERE c.bulletin_id=m.bulletin_id AND c.insee_code=o.insee_code
+                  )
+                ORDER BY o.insee_code,o.occurred_at DESC,m.forecast_score DESC
+             ), eligible AS (
+                SELECT s.*,
+                    (SELECT id FROM blue.forecast_alerts a
+                     WHERE a.bulletin_id=$1::uuid AND a.insee_code=s.insee_code
+                       AND a.horizon='hours_24' ORDER BY alert_index DESC LIMIT 1) alert_24h_id,
+                    (SELECT id FROM blue.forecast_alerts a
+                     WHERE a.bulletin_id=$1::uuid AND a.insee_code=s.insee_code
+                       AND a.horizon='hours_48' ORDER BY alert_index DESC LIMIT 1) alert_48h_id,
+                    (SELECT valid_at FROM blue.forecast_alerts a
+                     WHERE a.bulletin_id=$1::uuid AND a.insee_code=s.insee_code
+                       AND a.horizon='hours_24' ORDER BY alert_index DESC LIMIT 1) valid_24h,
+                    (SELECT valid_at FROM blue.forecast_alerts a
+                     WHERE a.bulletin_id=$1::uuid AND a.insee_code=s.insee_code
+                       AND a.horizon='hours_48' ORDER BY alert_index DESC LIMIT 1) valid_48h
+                FROM signal_candidates s
              ), ranked AS (
-                SELECT *,ROW_NUMBER() OVER (
-                    ORDER BY selection_score DESC,commune_name,insee_code
-                ) daily_rank
-                FROM per_commune
+                SELECT e.*,ROW_NUMBER() OVER (
+                    ORDER BY selection_score DESC,occurred_at DESC,insee_code
+                ) reactive_rank
+                FROM eligible e
              )
              INSERT INTO blue.evidence_cases(
                 bulletin_id,insee_code,commune_name,department_code,daily_rank,
-                selection_score,alert_24h_id,alert_48h_id,research_after,review_stage)
-             SELECT bulletin_id,insee_code,commune_name,department_code,daily_rank,
-                selection_score,alert_24h_id,alert_48h_id,
-                COALESCE(research_24h,research_48h) + INTERVAL '3 hours',
-                CASE WHEN alert_24h_id IS NOT NULL THEN 'hours_24' ELSE 'hours_48' END
-             FROM ranked WHERE daily_rank <= $2
+                selection_score,selection_reason,trigger_observation_id,
+                alert_24h_id,alert_48h_id,research_after,review_stage)
+             SELECT $1::uuid,r.insee_code,r.commune_name,r.department_code,
+                (c.current_rank+r.reactive_rank)::smallint,r.selection_score,'reactive_signal',
+                r.observation_id,r.alert_24h_id,r.alert_48h_id,NOW(),
+                CASE WHEN r.valid_24h IS NOT NULL AND r.occurred_at<=r.valid_24h
+                    THEN 'hours_24' ELSE 'hours_48' END
+             FROM ranked r CROSS JOIN capacity c
+             WHERE r.reactive_rank<=LEAST(c.available,c.reactive_available)
+               AND (r.alert_24h_id IS NOT NULL OR r.alert_48h_id IS NOT NULL)
              ON CONFLICT(bulletin_id,insee_code) DO NOTHING",
         )
         .bind(bulletin_id)
-        .bind(limit.clamp(1, 20))
+        .bind(REACTIVE_EVIDENCE_LIMIT)
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected())
@@ -658,7 +795,7 @@ impl Store {
     ) -> Result<Vec<BlueEvidenceCaseRow>, StoreError> {
         sqlx::query_as(
             "SELECT c.id::text,c.bulletin_id::text,b.bulletin_date,c.insee_code,
-                c.commune_name,c.department_code,c.daily_rank,c.selection_score,
+                c.commune_name,c.department_code,c.daily_rank,c.selection_score,c.selection_reason,
                 a24.id::text alert_24h_id,a24.alert_index alert_24h_index,
                 a24.valid_at alert_24h_valid_at,a48.id::text alert_48h_id,
                 a48.alert_index alert_48h_index,a48.valid_at alert_48h_valid_at,
@@ -754,8 +891,8 @@ impl Store {
         sqlx::query_as(
             "WITH due AS (
                 SELECT id FROM blue.evidence_cases
-                WHERE status IN ('pending','retry_due') AND attempt_count < 4
-                  AND stage_attempt_count < 2 AND review_stage IN ('hours_24','hours_48')
+                WHERE status IN ('pending','retry_due') AND attempt_count < 6
+                  AND stage_attempt_count < 3 AND review_stage IN ('hours_24','hours_48')
                   AND COALESCE(next_attempt_at,research_after) <= NOW()
                 ORDER BY COALESCE(next_attempt_at,research_after),daily_rank
                 FOR UPDATE SKIP LOCKED LIMIT 1
@@ -767,10 +904,12 @@ impl Store {
              )
              SELECT c.id::text,c.bulletin_id::text,b.bulletin_date,b.issued_at,
                 c.insee_code,c.commune_name,c.department_code,c.daily_rank,c.selection_score,
+                c.selection_reason,o.occurred_at trigger_observed_at,
                 a24.alert_index alert_24h_index,a24.valid_at alert_24h_valid_at,
                 a48.alert_index alert_48h_index,a48.valid_at alert_48h_valid_at,
                 c.review_stage review_horizon,c.attempt_count,c.stage_attempt_count
              FROM claimed c JOIN blue.forecast_bulletins b ON b.id=c.bulletin_id
+             LEFT JOIN blue.ground_truth_observations o ON o.id=c.trigger_observation_id
              LEFT JOIN blue.forecast_alerts a24 ON a24.id=c.alert_24h_id
              LEFT JOIN blue.forecast_alerts a48 ON a48.id=c.alert_48h_id",
         )
@@ -963,40 +1102,52 @@ impl Store {
         error: &str,
     ) -> Result<(), StoreError> {
         let mut tx = self.pool.begin().await?;
+        let safe_error = error.chars().take(500).collect::<String>();
         sqlx::query(
             "UPDATE blue.evidence_runs SET status='failed',error=$2,completed_at=NOW()
              WHERE id=$1::uuid AND status='started'",
         )
         .bind(run_id)
-        .bind(error.chars().take(500).collect::<String>())
+        .bind(&safe_error)
         .execute(&mut *tx)
         .await?;
         sqlx::query(
             "UPDATE blue.evidence_cases c SET
                 status=CASE
-                    WHEN stage_attempt_count < 2 THEN 'retry_due'
+                    WHEN stage_attempt_count < CASE
+                        WHEN $3 LIKE 'invalid evidence output:%' THEN 3 ELSE 2 END
+                        THEN 'retry_due'
                     WHEN $2='hours_24' AND alert_48h_id IS NOT NULL THEN 'pending'
                     ELSE 'failed' END,
                 review_stage=CASE
-                    WHEN stage_attempt_count < 2 THEN review_stage
+                    WHEN stage_attempt_count < CASE
+                        WHEN $3 LIKE 'invalid evidence output:%' THEN 3 ELSE 2 END
+                        THEN review_stage
                     WHEN $2='hours_24' AND alert_48h_id IS NOT NULL THEN 'hours_48'
                     ELSE 'completed' END,
                 stage_attempt_count=CASE
-                    WHEN stage_attempt_count < 2 THEN stage_attempt_count ELSE 0 END,
-                verdict=CASE WHEN $2='hours_48' AND stage_attempt_count >= 2
+                    WHEN stage_attempt_count < CASE
+                        WHEN $3 LIKE 'invalid evidence output:%' THEN 3 ELSE 2 END
+                        THEN stage_attempt_count ELSE 0 END,
+                verdict=CASE WHEN $2='hours_48' AND stage_attempt_count >= CASE
+                    WHEN $3 LIKE 'invalid evidence output:%' THEN 3 ELSE 2 END
                     THEN 'inconclusive' ELSE verdict END,
-                next_attempt_at=CASE WHEN stage_attempt_count < 2
+                next_attempt_at=CASE WHEN stage_attempt_count < CASE
+                    WHEN $3 LIKE 'invalid evidence output:%' THEN 3 ELSE 2 END
                     THEN NOW()+INTERVAL '6 hours' ELSE NULL END,
-                research_after=CASE WHEN $2='hours_24' AND stage_attempt_count >= 2
+                research_after=CASE WHEN $2='hours_24' AND stage_attempt_count >= CASE
+                    WHEN $3 LIKE 'invalid evidence output:%' THEN 3 ELSE 2 END
                     AND alert_48h_id IS NOT NULL THEN COALESCE((SELECT valid_at+INTERVAL '3 hours'
                         FROM blue.forecast_alerts WHERE id=c.alert_48h_id),research_after)
                     ELSE research_after END,
-                completed_at=CASE WHEN $2='hours_48' AND stage_attempt_count >= 2
+                completed_at=CASE WHEN $2='hours_48' AND stage_attempt_count >= CASE
+                    WHEN $3 LIKE 'invalid evidence output:%' THEN 3 ELSE 2 END
                     THEN NOW() ELSE NULL END,updated_at=NOW()
              WHERE c.id=$1::uuid AND c.status='researching'",
         )
         .bind(case_id)
         .bind(review_horizon)
+        .bind(&safe_error)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -1010,6 +1161,98 @@ fn rate(numerator: i64, denominator: i64) -> BlueRateMetric {
         denominator,
         value: (denominator > 0)
             .then(|| bounded_i64_to_f64(numerator) / bounded_i64_to_f64(denominator)),
+    }
+}
+
+fn select_blue_evidence_candidates(
+    candidates: &[BlueEvidenceCandidate],
+    requested_limit: usize,
+) -> Vec<(BlueEvidenceCandidate, &'static str)> {
+    let target = requested_limit
+        .min(PROACTIVE_EVIDENCE_LIMIT)
+        .min(candidates.len());
+    let mut ranked = candidates.to_vec();
+    ranked.sort_by(|left, right| {
+        right
+            .selection_score
+            .total_cmp(&left.selection_score)
+            .then_with(|| left.commune_name.cmp(&right.commune_name))
+            .then_with(|| left.insee_code.cmp(&right.insee_code))
+    });
+    let mut selected = Vec::with_capacity(target);
+    let mut seen = HashSet::with_capacity(target);
+
+    for candidate in ranked.iter().take(NATIONAL_EVIDENCE_QUOTA) {
+        add_blue_candidate(&mut selected, &mut seen, candidate, "national_top", target);
+    }
+
+    let mut department_leaders = BTreeMap::<String, BlueEvidenceCandidate>::new();
+    for candidate in &ranked {
+        if seen.contains(&candidate.insee_code) {
+            continue;
+        }
+        let Some(department) = candidate.department_code.as_ref() else {
+            continue;
+        };
+        department_leaders
+            .entry(department.clone())
+            .or_insert_with(|| candidate.clone());
+    }
+    let mut department_leaders = department_leaders.into_values().collect::<Vec<_>>();
+    department_leaders.sort_by(|left, right| {
+        right
+            .selection_score
+            .total_cmp(&left.selection_score)
+            .then_with(|| left.insee_code.cmp(&right.insee_code))
+    });
+    for candidate in department_leaders.iter().take(TERRITORIAL_EVIDENCE_QUOTA) {
+        add_blue_candidate(
+            &mut selected,
+            &mut seen,
+            candidate,
+            "territorial_top",
+            target,
+        );
+    }
+
+    let mut acceleration = ranked
+        .iter()
+        .filter(|candidate| !seen.contains(&candidate.insee_code))
+        .cloned()
+        .collect::<Vec<_>>();
+    acceleration.sort_by(|left, right| {
+        let left_delta = left.selection_score - left.previous_score.unwrap_or(ALERT_THRESHOLD);
+        let right_delta = right.selection_score - right.previous_score.unwrap_or(ALERT_THRESHOLD);
+        right_delta
+            .total_cmp(&left_delta)
+            .then_with(|| right.selection_score.total_cmp(&left.selection_score))
+            .then_with(|| left.insee_code.cmp(&right.insee_code))
+    });
+    for candidate in acceleration.iter().take(ACCELERATION_EVIDENCE_QUOTA) {
+        add_blue_candidate(
+            &mut selected,
+            &mut seen,
+            candidate,
+            "risk_acceleration",
+            target,
+        );
+    }
+
+    for candidate in &ranked {
+        add_blue_candidate(&mut selected, &mut seen, candidate, "national_top", target);
+    }
+    selected
+}
+
+fn add_blue_candidate(
+    selected: &mut Vec<(BlueEvidenceCandidate, &'static str)>,
+    seen: &mut HashSet<String>,
+    candidate: &BlueEvidenceCandidate,
+    reason: &'static str,
+    target: usize,
+) {
+    if selected.len() < target && seen.insert(candidate.insee_code.clone()) {
+        selected.push((candidate.clone(), reason));
     }
 }
 
@@ -1206,13 +1449,33 @@ fn build_blue_performance_summary(
             "territorial_accuracy",
             "calibrated_probability_accuracy",
         ],
-        methodology: "Mesures limitées aux communes du Top 20 contrôlées après échéance. Une absence de preuve publiée n'est jamais interprétée comme une absence certaine d'incendie.",
+        methodology: "Mesures limitées à un échantillon quotidien diversifié de communes à risque, complété par des recherches déclenchées par les signaux terrain. Une absence de preuve publiée n'est jamais interprétée comme une absence certaine d'incendie.",
     }
 }
 
 #[cfg(test)]
 mod performance_tests {
     use super::*;
+
+    fn candidate(
+        index: usize,
+        department: &str,
+        score: f32,
+        previous: f32,
+    ) -> BlueEvidenceCandidate {
+        BlueEvidenceCandidate {
+            bulletin_id: "00000000-0000-0000-0000-000000000001".to_owned(),
+            insee_code: format!("{index:05}"),
+            commune_name: format!("Commune {index}"),
+            department_code: Some(department.to_owned()),
+            selection_score: score,
+            previous_score: Some(previous),
+            alert_24h_id: Some(format!("00000000-0000-0000-0000-{index:012}")),
+            alert_48h_id: None,
+            research_24h: None,
+            research_48h: None,
+        }
+    }
 
     fn case(verdict_24h: &str, verdict_48h: &str, final_ready: bool) -> BluePerformanceCase {
         let issued_at = DateTime::parse_from_rfc3339("2026-08-12T06:00:00Z")
@@ -1263,5 +1526,47 @@ mod performance_tests {
         assert_eq!(summary.hours_48.pending_cases, 1);
         assert_eq!(summary.hours_48.observed_signal_rate.denominator, 0);
         assert_eq!(summary.hours_48.observed_signal_rate.value, None);
+    }
+
+    #[test]
+    fn evidence_selection_combines_national_territorial_and_acceleration_cases() {
+        let candidates = (0..24)
+            .map(|index| {
+                let score = 0.99 - f32::from(u16::try_from(index).expect("small index")) * 0.01;
+                let previous = if index >= 12 { 0.65 } else { score - 0.01 };
+                candidate(index, &format!("{:02}", index % 12), score, previous)
+            })
+            .collect::<Vec<_>>();
+        let selected = select_blue_evidence_candidates(&candidates, 20);
+        assert_eq!(selected.len(), PROACTIVE_EVIDENCE_LIMIT);
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|(_, reason)| *reason == "national_top")
+                .count(),
+            NATIONAL_EVIDENCE_QUOTA
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|(_, reason)| *reason == "territorial_top")
+                .count(),
+            TERRITORIAL_EVIDENCE_QUOTA
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .filter(|(_, reason)| *reason == "risk_acceleration")
+                .count(),
+            ACCELERATION_EVIDENCE_QUOTA
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .map(|(item, _)| &item.insee_code)
+                .collect::<HashSet<_>>()
+                .len(),
+            selected.len()
+        );
     }
 }
