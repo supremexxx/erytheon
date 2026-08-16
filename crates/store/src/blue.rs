@@ -634,6 +634,17 @@ impl Store {
         bulletin_id: &str,
         limit: i64,
     ) -> Result<u64, StoreError> {
+        let selection_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1 FROM blue.evidence_cases WHERE bulletin_id=$1::uuid
+             )",
+        )
+        .bind(bulletin_id)
+        .fetch_one(&self.pool)
+        .await?;
+        if selection_exists {
+            return Ok(0);
+        }
         let candidates: Vec<BlueEvidenceCandidate> = sqlx::query_as(
             "WITH previous_bulletin AS (
                 SELECT previous.id
