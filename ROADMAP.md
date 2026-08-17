@@ -165,9 +165,12 @@ what's stated here; both can be reprioritized independently.
   public scientific console. Design sketch only today — see
   [`docs/public-platform.md`](docs/public-platform.md).
 - **Phase D — Prospective validation**: immutable forecast archive,
-  matching against observed events, long-term evaluation. Not
-  implemented — see
-  [`docs/scientific-limitations.md`](docs/scientific-limitations.md#prospective-validation-is-not-implemented-yet).
+  matching against observed events, long-term evaluation. BLUE
+  implements a first partial foundation (immutable archive, bounded
+  daily +24h/+48h evidence checks); the full system — reverse matching
+  for recall/specificity and a published aggregate track record — is not
+  built yet — see
+  [`docs/scientific-limitations.md`](docs/scientific-limitations.md#prospective-validation-is-partially-implemented-not-complete).
 - **Phase E — Shadow candidate** (same content as internal **P3** above):
   the candidate receives live cases, serves no users, and is evaluated for
   drift and calibration.
