@@ -526,7 +526,7 @@ async fn write_report(
     let top_five = percentage(summary.top_five_hits, summary.ignitions);
     let top_ten = percentage(summary.top_ten_hits, summary.ignitions);
     let mut report = format!(
-        "# PyroRisk Backtest Report\n\n\
+        "# FireSift Backtest Report\n\n\
          Generated at: {}\n\n\
          ## Scope\n\n\
          - Period: `{from}` through `{to}` (inclusive)\n\

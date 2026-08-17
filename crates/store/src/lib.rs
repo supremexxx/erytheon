@@ -1,4 +1,4 @@
-//! `PostgreSQL` persistence for `PyroRisk`.
+//! `PostgreSQL` persistence for `FireSift`.
 
 use std::collections::HashMap;
 
