@@ -33,7 +33,7 @@ Audit de l'interface livrée en phase 4A (captures prises alors, voir conversati
 
 ## 3. Principes retenus
 
-Voir [SCIENTIFIC_UI_STYLE_GUIDE.md](SCIENTIFIC_UI_STYLE_GUIDE.md) pour le détail complet des
+Voir [SCIENTIFIC_UI_STYLE_GUIDE.md](../reports/SCIENTIFIC_UI_STYLE_GUIDE.md) pour le détail complet des
 tokens. Résumé des décisions :
 
 - Fond légèrement grisé (`#f4f5f3`), jamais blanc pur ; séparation par lignes fines, pas

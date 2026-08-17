@@ -1,7 +1,7 @@
 # Phase 3B.11 — P2 Load-Only Verification Report
 
 Two controlled operations: Part A (preventive rollback-guard fix, see
-[ROLLBACK_GUARD_CORRECTION_REPORT.md](ROLLBACK_GUARD_CORRECTION_REPORT.md))
+[ROLLBACK_GUARD_CORRECTION_REPORT.md](../reports/ROLLBACK_GUARD_CORRECTION_REPORT.md))
 and Part B (P2 load-only verification), documented here.
 
 ## 1. Git audit

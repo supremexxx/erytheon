@@ -16,7 +16,7 @@ actif, aucun shadow scoring n'a commencé (P3 non entamé).
 
 ## 2. Audit de l'interface, des routes et du schéma existants
 
-Voir le détail dans [SCIENTIFIC_CONSOLE_ARCHITECTURE.md](SCIENTIFIC_CONSOLE_ARCHITECTURE.md) §2.
+Voir le détail dans [SCIENTIFIC_CONSOLE_ARCHITECTURE.md](../reports/SCIENTIFIC_CONSOLE_ARCHITECTURE.md) §2.
 Résumé : aucun outillage de build frontend (vanilla HTML/CSS/JS embarqué via `include_str!`),
 aucune authentification API, convention UUID-as-`String`/`::text`, et deux corrections
 factuelles importantes aux hypothèses de la mission :
@@ -29,7 +29,7 @@ factuelles importantes aux hypothèses de la mission :
 ## 3. Architecture et point d'étape
 
 Architecture proposée, validée par point d'étape avant implémentation (voir
-[SCIENTIFIC_CONSOLE_ARCHITECTURE.md](SCIENTIFIC_CONSOLE_ARCHITECTURE.md)) : séparation
+[SCIENTIFIC_CONSOLE_ARCHITECTURE.md](../reports/SCIENTIFIC_CONSOLE_ARCHITECTURE.md)) : séparation
 `store::science` (requêtes) / `api::science` (handlers) / `static/science` (frontend vanilla),
 verrou de déploiement `SCIENCE_CONSOLE_ENABLED` (défaut `false`), historique de progression en
 JSON versionné, commande de prévisualisation `PreviewScienceConsole` sans scheduler.
@@ -49,7 +49,7 @@ system}`, `/science/datasets/:id`, servis uniquement quand `SCIENCE_CONSOLE_ENAB
 `GET /api/science/{overview,progress,sources,imports,pipelines,data-quality,
 data-quality/events,features,calendar,datasets,datasets/{logical_id},models,system}` — détail
 complet des contrats dans
-[SCIENTIFIC_CONSOLE_DATA_CONTRACTS.md](SCIENTIFIC_CONSOLE_DATA_CONTRACTS.md).
+[SCIENTIFIC_CONSOLE_DATA_CONTRACTS.md](../reports/SCIENTIFIC_CONSOLE_DATA_CONTRACTS.md).
 
 ## 5. Pages livrées (priorité 1 et 2)
 

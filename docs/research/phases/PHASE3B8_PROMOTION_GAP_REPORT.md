@@ -3,7 +3,7 @@
 Closes the single gap left open by phase 3B.7: whether the GBM+isotonic
 candidate is genuinely superior to the active v1 model, on a shared,
 fairly defined 2025 population. Detail in
-[V1_CANDIDATE_COMPARISON.md](V1_CANDIDATE_COMPARISON.md); this document
+[V1_CANDIDATE_COMPARISON.md](../reports/V1_CANDIDATE_COMPARISON.md); this document
 covers the git/environment audit, the pre-registered promotion
 criterion's precise interpretation, and the final decision.
 
