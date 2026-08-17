@@ -1,6 +1,14 @@
 # Free Oracle deployment
 
-This stack deploys ERYTHEON on one Oracle Cloud Always Free ARM instance. It keeps PostgreSQL private, exposes only Caddy on ports 80/443, runs the live FIRMS and weather scheduler, and optionally uploads one rolling PostgreSQL backup to Cloudflare R2.
+This stack deploys FireSift on one Oracle Cloud Always Free ARM instance. It keeps PostgreSQL private, exposes only Caddy on ports 80/443, runs the live FIRMS and weather scheduler, and optionally uploads one rolling PostgreSQL backup to Cloudflare R2.
+
+> The project's public name is FireSift, but this guide's variable names,
+> paths, and service/user names (`pyrorisk`, `PYRORISK_*`, `/opt/pyrorisk`,
+> `ERYTHEON_*` runtime variables) intentionally still use the project's
+> original internal identifiers. They match what is actually deployed and
+> are retained for backward compatibility — see the root
+> [`OPEN_SOURCE_READINESS_REPORT.md`](../../OPEN_SOURCE_READINESS_REPORT.md)
+> and `CHANGELOG.md` for why.
 
 ## 1. Create the VM
 
