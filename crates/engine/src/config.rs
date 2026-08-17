@@ -38,8 +38,12 @@ const DEFAULT_SCIENCE_CONSOLE_ENABLED: &str = "false";
 /// `false` for the same reason as `SCIENCE_CONSOLE_ENABLED`: this is a
 /// deployment gate for an early prototype, not access control.
 const DEFAULT_CLIENT_CONSOLE_ENABLED: &str = "false";
+const DEFAULT_BLUE_CENTER_ENABLED: &str = "false";
+const DEFAULT_BLUE_AI_EVIDENCE_ENABLED: &str = "false";
+const DEFAULT_BLUE_OPENAI_MODEL: &str = "gpt-4o-mini";
 
 #[derive(Clone, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Config {
     pub database_url: String,
     pub data_profile: DataProfile,
@@ -66,6 +70,10 @@ pub struct Config {
     pub api_bind: SocketAddr,
     pub science_console_enabled: bool,
     pub client_console_enabled: bool,
+    pub blue_center_enabled: bool,
+    pub blue_ai_evidence_enabled: bool,
+    pub openai_api_key: Option<String>,
+    pub blue_openai_model: String,
 }
 
 impl Config {
@@ -134,6 +142,13 @@ impl Config {
                 "CLIENT_CONSOLE_ENABLED",
                 DEFAULT_CLIENT_CONSOLE_ENABLED,
             )?,
+            blue_center_enabled: parse_env("BLUE_CENTER_ENABLED", DEFAULT_BLUE_CENTER_ENABLED)?,
+            blue_ai_evidence_enabled: parse_env(
+                "BLUE_AI_EVIDENCE_ENABLED",
+                DEFAULT_BLUE_AI_EVIDENCE_ENABLED,
+            )?,
+            openai_api_key: optional_env("OPENAI_API_KEY"),
+            blue_openai_model: env_or_default("BLUE_OPENAI_MODEL", DEFAULT_BLUE_OPENAI_MODEL),
         };
         config.validate()?;
         Ok(config)
@@ -168,6 +183,9 @@ impl Config {
             territory_geojson_path = ?self.territory_geojson_path,
             territory_codes = ?self.territory_codes,
             territory_label = ?self.territory_label,
+            blue_ai_evidence_enabled = self.blue_ai_evidence_enabled,
+            openai_configured = self.openai_api_key.is_some(),
+            blue_openai_model = %self.blue_openai_model,
             "configuration loaded"
         );
     }
@@ -194,6 +212,11 @@ impl Config {
         if self.recompute_interval.is_zero() {
             return Err(ConfigError::Validation(
                 "RECOMPUTE_INTERVAL_SECS must be greater than zero".to_owned(),
+            ));
+        }
+        if self.blue_openai_model.trim().is_empty() {
+            return Err(ConfigError::Validation(
+                "BLUE_OPENAI_MODEL must not be blank".to_owned(),
             ));
         }
         if !self.weather_idw_power.is_finite() || self.weather_idw_power <= 0.0 {

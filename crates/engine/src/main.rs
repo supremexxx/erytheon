@@ -1,5 +1,6 @@
 mod backtest;
 mod bdiff_pipeline;
+mod blue_evidence;
 mod candidate_artifact;
 mod candidate_load_verification;
 mod candidate_pipeline;
@@ -272,6 +273,14 @@ enum Command {
         /// Comma-separated postal codes served by the commune.
         #[arg(long, value_delimiter = ',')]
         postal_codes: Vec<String>,
+    },
+    /// Loads the complete versioned commune catalog and deterministic H3
+    /// ownership required by BLUE forecast bulletins.
+    LoadCommuneCatalog {
+        #[arg(long)]
+        geojson: PathBuf,
+        #[arg(long)]
+        source_version: String,
     },
     /// Replays historical weather and evaluates observed ignitions.
     Backtest {
@@ -561,6 +570,10 @@ async fn main() -> anyhow::Result<()> {
             name,
             postal_codes,
         } => load_commune_boundary(config, &insee_code, &geojson, &name, &postal_codes).await,
+        Command::LoadCommuneCatalog {
+            geojson,
+            source_version,
+        } => load_commune_catalog(config, &geojson, &source_version).await,
         Command::Backtest {
             from,
             to,
@@ -895,6 +908,28 @@ async fn load_commune_boundary(
         fixture.name,
         fixture.insee_code,
         fixture.postal_codes.join(", ")
+    );
+    Ok(())
+}
+
+async fn load_commune_catalog(
+    config: Config,
+    geojson: &Path,
+    source_version: &str,
+) -> anyhow::Result<()> {
+    let grid = H3Grid::new(config.h3_resolution).context("failed to configure H3 grid")?;
+    let (entries, checksum) = commune_loader::load_catalog(geojson, grid)?;
+    let store = Store::connect(&config.database_url)
+        .await
+        .context("failed to initialize database")?;
+    let resolution = i16::from(config.h3_resolution);
+    let (boundaries, mappings) = store
+        .replace_commune_catalog(&entries, resolution, source_version, &checksum)
+        .await
+        .context("failed to persist commune catalog")?;
+    println!(
+        "Loaded {boundaries} communes and {mappings} H3 mappings at resolution {resolution} \
+         (checksum {checksum})"
     );
     Ok(())
 }
@@ -1370,7 +1405,8 @@ async fn run(config: Config) -> anyhow::Result<()> {
     let mut app_state = AppState::new(store, grid, updates)
         .with_operational_area(config.aoi_bbox, territory_label)
         .with_science_console_enabled(config.science_console_enabled)
-        .with_client_console_enabled(config.client_console_enabled);
+        .with_client_console_enabled(config.client_console_enabled)
+        .with_blue_center_enabled(config.blue_center_enabled);
     if let Some(territory) = &territory {
         let cells = territory
             .partitions
@@ -1403,7 +1439,8 @@ async fn preview_science_console(config: Config, bind: std::net::SocketAddr) -> 
     let (updates, _) = broadcast::channel::<Arc<api::RiskUpdate>>(RISK_UPDATE_CHANNEL_CAPACITY);
     let app_state = AppState::new(store, grid, updates)
         .with_operational_area(config.aoi_bbox, "Aperçu console scientifique".to_owned())
-        .with_science_console_enabled(true);
+        .with_science_console_enabled(true)
+        .with_blue_center_enabled(config.blue_center_enabled);
     axum::serve(listener, api::router(app_state))
         .with_graceful_shutdown(shutdown_signal())
         .await

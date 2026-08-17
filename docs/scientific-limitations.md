@@ -43,7 +43,7 @@ historical numbers do not by themselves establish:
 This is the specific reason the candidate `gbm_isotonic_v2` model remains
 `inactive` and has not been promoted, despite reporting materially better
 historical metrics than v1 (see [`docs/models.md`](models.md)). See
-[Prospective validation is not implemented yet](#prospective-validation-is-not-implemented-yet)
+[Prospective validation is partially implemented, not complete](#prospective-validation-is-partially-implemented-not-complete)
 below for what would close this gap.
 
 ## Static territorial features have temporal drift
@@ -87,17 +87,36 @@ degrades the resulting score without necessarily being visually obvious —
 see [`docs/reproducibility.md`](reproducibility.md) and the operational
 dashboard's source-status view for how staleness is currently surfaced.
 
-## Prospective validation is not implemented yet
+## Prospective validation is partially implemented, not complete
 
-There is currently no system that archives a forecast at time T as an
-immutable snapshot, waits for the observation window to close, and
-compares the forecast against what was actually observed. This means
-Erytheon cannot yet publish a genuine track record (precision, recall,
-false-positive/false-negative rates, hit rate, calibration drift) computed
-against live outcomes. A design for this is sketched in
-[`docs/public-platform.md`](public-platform.md) (roadmap Phase D); it does
-not exist today, and no current claim in this repository should be read as
-if it did.
+BLUE (see `docs/research/reports/BLUE_FORECAST_EVIDENCE_CONTRACT.md` and
+`docs/research/reports/BLUE_AI_EVIDENCE_WORKFLOW.md`) implements a first,
+partial foundation for this: forecasts are locked immutably at publication
+time, and a daily selection of communes is checked against real-world
+evidence at the `+24h` and `+48h` horizons, with every run, response, and
+cited source archived append-only.
+
+This is **not yet a complete prospective validation system**. In
+particular:
+
+- Only a bounded daily selection (up to twenty communes) is checked, not
+  the full forecast archive.
+- There is no reverse pass from all observed fire events back to the
+  forecast archive, so **false negatives are not currently measured** —
+  the workflow can show it found evidence where expected, but not
+  systematically show what it missed.
+- Because of that, Erytheon **cannot yet compute or publish recall,
+  specificity, or a global precision figure** from this system. What
+  exists today is case-level evidence-gathering, not an aggregate
+  performance metric.
+- Calibration drift and hit-rate tracking over time are not implemented.
+
+A design for the complete system — including the reverse matching needed
+for recall/specificity and a published aggregate track record — is
+sketched in [`docs/public-platform.md`](public-platform.md) (roadmap
+Phase D). No current claim in this repository should be read as if
+full prospective validation, or any aggregate accuracy figure derived
+from it, already existed.
 
 ## Shadow scoring has not been run
 

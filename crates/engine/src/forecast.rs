@@ -712,9 +712,13 @@ fn interpolate_forecast(
         precipitation += anchor.weight * sample.precipitation_24h_mm;
     }
     anyhow::ensure!(weight_sum > 0.0, "forecast interpolation has no weight");
+    // A weighted average of valid percentages can drift a few ULPs outside
+    // the physical interval (for example 100.00000000000001). Keep the
+    // interpolated value inside the same bounds already enforced at ingest.
+    let relative_humidity_pct = (humidity / weight_sum).clamp(0.0, 100.0);
     Ok(Weather {
         temperature_c: temperature / weight_sum,
-        relative_humidity_pct: humidity / weight_sum,
+        relative_humidity_pct,
         wind_speed_kmh: wind / weight_sum,
         precipitation_mm: precipitation / weight_sum,
         month: u8::try_from(valid_at.month()).context("forecast month does not fit u8")?,
@@ -747,10 +751,11 @@ struct StaticFeatures {
 #[cfg(test)]
 mod tests {
     use chrono::{TimeZone as _, Utc};
+    use fwi::{FwiState, calculate_daily};
     use grid::{BoundingBox, LatLng};
     use ingest::open_meteo::{ForecastLocation, ForecastSample};
 
-    use super::{anchor_grid, latest_available_hour};
+    use super::{AnchorWeight, anchor_grid, interpolate_forecast, latest_available_hour};
 
     const COORDINATE_TOLERANCE: f64 = 1.0e-9;
 
@@ -803,5 +808,34 @@ mod tests {
             selected,
             Utc.with_ymd_and_hms(2026, 7, 18, 21, 0, 0).unwrap()
         );
+    }
+
+    #[test]
+    fn interpolation_clamps_humidity_roundoff_to_physical_bounds() {
+        let valid_at = Utc.with_ymd_and_hms(2026, 8, 15, 12, 0, 0).unwrap();
+        let samples = [0.0, 1.0]
+            .map(|_| {
+                vec![ForecastSample {
+                    valid_at,
+                    temperature_c: 20.0,
+                    relative_humidity_pct: 100.0,
+                    wind_speed_kmh: 5.0,
+                    precipitation_24h_mm: 0.0,
+                }]
+            })
+            .to_vec();
+        let weights = [0.845_203_707_590_875_6, 0.155_545_351_481_234_72]
+            .into_iter()
+            .enumerate()
+            .map(|(index, weight)| AnchorWeight { index, weight })
+            .collect::<Vec<_>>();
+
+        let weather = interpolate_forecast(&weights, &samples, 0, valid_at)
+            .expect("interpolation should succeed");
+
+        assert!(weather.relative_humidity_pct <= 100.0);
+        assert!((weather.relative_humidity_pct - 100.0).abs() < f64::EPSILON);
+        calculate_daily(weather, FwiState::default())
+            .expect("clamped humidity must remain valid for FWI");
     }
 }

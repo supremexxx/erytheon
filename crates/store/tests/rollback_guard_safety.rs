@@ -133,6 +133,12 @@ async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
     // order. Every dependent's own tables are empty here, so each
     // rollback below is authorized and safe.
     for down in [
+        "0030_blue_evidence_grounding.down.sql",
+        "0029_blue_evidence_hardening.down.sql",
+        "0028_blue_ground_truth.down.sql",
+        "0027_blue_staged_evidence.down.sql",
+        "0026_blue_ai_evidence.down.sql",
+        "0025_blue_forecast_evidence_foundation.down.sql",
         "0024_daily_dense_scientific_archive.down.sql",
         "0022_scientific_snapshot_hardening.down.sql",
         "0021_snapshot_label_links.down.sql",
@@ -170,10 +176,10 @@ async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
     pool.close().await;
 
     // --- Restore via SQLx, keeping _sqlx_migrations consistent ---
-    // 13, 15, 19, 20, 21, and 22 all had their objects dropped above; every
-    // tracking row must be cleared so SQLx re-applies all five forward
-    // migrations, in order, on the next connect.
-    for version in [13, 15, 19, 20, 21, 22] {
+    // Every migration whose objects were dropped above must have its
+    // tracking row cleared so SQLx re-applies the full migration dependency
+    // chain, in order, on the next connect.
+    for version in [13, 15, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30] {
         mark_migration_pending_again(&temp_url, version).await;
     }
     Store::connect(&temp_url)
@@ -217,6 +223,12 @@ async fn rollback_0013_refuses_destructively_once_a_snapshot_exists() {
     // out of the way again so the assertion below exercises 0013's own
     // "data exists" guard, not the out-of-order guard.
     for down in [
+        "0030_blue_evidence_grounding.down.sql",
+        "0029_blue_evidence_hardening.down.sql",
+        "0028_blue_ground_truth.down.sql",
+        "0027_blue_staged_evidence.down.sql",
+        "0026_blue_ai_evidence.down.sql",
+        "0025_blue_forecast_evidence_foundation.down.sql",
         "0024_daily_dense_scientific_archive.down.sql",
         "0022_scientific_snapshot_hardening.down.sql",
         "0021_snapshot_label_links.down.sql",
@@ -702,11 +714,12 @@ async fn rollback_0016_refuses_and_preserves_a_registered_candidate() {
     drop_temp_database(&admin_url, db_name).await;
 }
 
-/// `0024`-`0018` must roll back only in strict reverse order
+/// `0029`-`0018` must roll back only in strict reverse order
 /// on an empty database, and each rollback must refuse while a later
 /// migration's objects still exist.
 #[tokio::test]
-async fn rollback_0024_to_0018_succeeds_only_in_reverse_order_when_empty() {
+#[allow(clippy::too_many_lines)]
+async fn rollback_0031_to_0018_succeeds_only_in_reverse_order_when_empty() {
     dotenvy::dotenv().ok();
     let Ok(admin_url) = std::env::var("DATABASE_URL") else {
         eprintln!("skipping database integration test: DATABASE_URL is not configured");
@@ -727,6 +740,76 @@ async fn rollback_0024_to_0018_succeeds_only_in_reverse_order_when_empty() {
     assert!(
         table_exists(&pool, "observability", "scientific_snapshots").await,
         "out-of-order rollback must preserve 0019's manifest table"
+    );
+
+    let rollback_0031 = run_psql(
+        &temp_url,
+        &migrations_root().join("0031_blue_evidence_requeue_repair.down.sql"),
+    );
+    assert!(
+        rollback_0031.status.success(),
+        "0031 rollback must succeed before 0030: {}",
+        String::from_utf8_lossy(&rollback_0031.stderr)
+    );
+
+    let rollback_0030 = run_psql(
+        &temp_url,
+        &migrations_root().join("0030_blue_evidence_grounding.down.sql"),
+    );
+    assert!(
+        rollback_0030.status.success(),
+        "0030 rollback must succeed before 0029: {}",
+        String::from_utf8_lossy(&rollback_0030.stderr)
+    );
+
+    let rollback_0029 = run_psql(
+        &temp_url,
+        &migrations_root().join("0029_blue_evidence_hardening.down.sql"),
+    );
+    assert!(
+        rollback_0029.status.success(),
+        "0029 rollback must succeed before 0028: {}",
+        String::from_utf8_lossy(&rollback_0029.stderr)
+    );
+
+    let rollback_0028 = run_psql(
+        &temp_url,
+        &migrations_root().join("0028_blue_ground_truth.down.sql"),
+    );
+    assert!(
+        rollback_0028.status.success(),
+        "0028 rollback must succeed before 0027: {}",
+        String::from_utf8_lossy(&rollback_0028.stderr)
+    );
+
+    let rollback_0027 = run_psql(
+        &temp_url,
+        &migrations_root().join("0027_blue_staged_evidence.down.sql"),
+    );
+    assert!(
+        rollback_0027.status.success(),
+        "0027 rollback must succeed before 0026: {}",
+        String::from_utf8_lossy(&rollback_0027.stderr)
+    );
+
+    let rollback_0026 = run_psql(
+        &temp_url,
+        &migrations_root().join("0026_blue_ai_evidence.down.sql"),
+    );
+    assert!(
+        rollback_0026.status.success(),
+        "0026 rollback must succeed before 0025: {}",
+        String::from_utf8_lossy(&rollback_0026.stderr)
+    );
+
+    let rollback_0025 = run_psql(
+        &temp_url,
+        &migrations_root().join("0025_blue_forecast_evidence_foundation.down.sql"),
+    );
+    assert!(
+        rollback_0025.status.success(),
+        "0025 rollback must succeed before 0024: {}",
+        String::from_utf8_lossy(&rollback_0025.stderr)
     );
 
     let rollback_0024 = run_psql(
@@ -824,6 +907,12 @@ async fn rollback_0018_refuses_and_preserves_populated_system_snapshots() {
     let pool = PgPool::connect(&temp_url).await.expect("pool");
 
     for down in [
+        "0030_blue_evidence_grounding.down.sql",
+        "0029_blue_evidence_hardening.down.sql",
+        "0028_blue_ground_truth.down.sql",
+        "0027_blue_staged_evidence.down.sql",
+        "0026_blue_ai_evidence.down.sql",
+        "0025_blue_forecast_evidence_foundation.down.sql",
         "0024_daily_dense_scientific_archive.down.sql",
         "0022_scientific_snapshot_hardening.down.sql",
         "0021_snapshot_label_links.down.sql",

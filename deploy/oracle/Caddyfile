@@ -9,6 +9,7 @@
 	}
 
 	@science path /science /science/* /science.css /science.js /api/science /api/science/*
+	@blue path /blue /blue/* /blue.css /blue.js /api/blue /api/blue/*
 	@favicon path /favicon.ico
 
 	handle @favicon {
@@ -16,6 +17,14 @@
 	}
 
 	handle @science {
+		basic_auth {
+			{$SCIENCE_USER} {$SCIENCE_PASSWORD_HASH}
+		}
+
+		reverse_proxy app:8080
+	}
+
+	handle @blue {
 		basic_auth {
 			{$SCIENCE_USER} {$SCIENCE_PASSWORD_HASH}
 		}

@@ -22,6 +22,7 @@ use store::{FwiSnapshot, SourceStatusRow, Store, StoredRiskScore};
 use tokio::sync::broadcast;
 use tower_http::trace::TraceLayer;
 
+mod blue;
 mod client;
 mod science;
 
@@ -42,6 +43,7 @@ pub struct AppState {
     operational_cells: Option<Arc<Vec<CellIndex>>>,
     science_console_enabled: bool,
     client_console_enabled: bool,
+    blue_center_enabled: bool,
 }
 
 impl AppState {
@@ -62,6 +64,7 @@ impl AppState {
             operational_cells: None,
             science_console_enabled: false,
             client_console_enabled: false,
+            blue_center_enabled: false,
         }
     }
 
@@ -95,6 +98,12 @@ impl AppState {
     #[must_use]
     pub const fn with_client_console_enabled(mut self, enabled: bool) -> Self {
         self.client_console_enabled = enabled;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_blue_center_enabled(mut self, enabled: bool) -> Self {
+        self.blue_center_enabled = enabled;
         self
     }
 
@@ -214,6 +223,15 @@ pub fn router(state: AppState) -> Router {
             .nest("/api/client", client::router());
     }
 
+    if state.blue_center_enabled {
+        router = router
+            .route("/blue", get(blue_shell))
+            .route("/blue/{*path}", get(blue_shell))
+            .route("/blue.css", get(blue_css))
+            .route("/blue.js", get(blue_js))
+            .nest("/api/blue", blue::router());
+    }
+
     router
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
@@ -224,6 +242,27 @@ pub fn router(state: AppState) -> Router {
 const SCIENCE_HTML: &str = include_str!("../static/science/index.html");
 const SCIENCE_CSS: &str = include_str!("../static/science/science.css");
 const SCIENCE_JS: &str = include_str!("../static/science/science.js");
+const BLUE_HTML: &str = include_str!("../static/blue/index.html");
+const BLUE_CSS: &str = include_str!("../static/blue/blue.css");
+const BLUE_JS: &str = include_str!("../static/blue/blue.js");
+
+async fn blue_shell() -> Html<&'static str> {
+    Html(BLUE_HTML)
+}
+
+async fn blue_css() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        BLUE_CSS,
+    )
+}
+
+async fn blue_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        BLUE_JS,
+    )
+}
 
 async fn science_shell() -> Html<&'static str> {
     Html(SCIENCE_HTML)

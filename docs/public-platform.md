@@ -71,13 +71,17 @@ recall, ROC-AUC, PR-AUC, Brier score (if calibration is meaningful at that
 point), calibration, false positives, false negatives, hit rate, top-k
 capture, temporal stability, and drift.
 
-**This does not exist yet.** See
-[`docs/scientific-limitations.md`](scientific-limitations.md#prospective-validation-is-not-implemented-yet).
-Building it is Phase D in [`ROADMAP.md`](../ROADMAP.md), after the public
-research release (Phase B) and the public web platform (Phase C) — in that
-order, because publishing a performance page before there's anything real
-to measure would be exactly the kind of overclaiming this project is
-trying to avoid.
+**This full system does not exist yet.** A first, partial foundation
+(immutable forecast archive, bounded daily evidence checks at `+24h`/
+`+48h`) exists as BLUE — see
+[`docs/scientific-limitations.md`](scientific-limitations.md#prospective-validation-is-partially-implemented-not-complete)
+for exactly what it does and does not yet measure. Building the complete
+system — including the reverse matching needed to compute recall or
+specificity, and a published aggregate track record — is Phase D in
+[`ROADMAP.md`](../ROADMAP.md), after the public research release (Phase B)
+and the public web platform (Phase C) — in that order, because publishing
+a performance page before there's anything real to measure would be
+exactly the kind of overclaiming this project is trying to avoid.
 
 ## Philosophy carried into this design
 

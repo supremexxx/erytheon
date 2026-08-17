@@ -10,13 +10,16 @@ use ingest::{
     open_meteo::{ForecastModel, OpenMeteoForecastSource},
 };
 use risk::HeuristicV1;
-use store::{FreshnessThresholds, Store, SystemSnapshotContext};
+use store::{BlueForecastContext, FreshnessThresholds, Store, SystemSnapshotContext};
 use tokio::{
     sync::broadcast,
     time::{MissedTickBehavior, interval},
 };
 
-use crate::{config::Config, firms_pipeline, forecast, territory::Territory};
+use crate::{
+    blue_evidence::BlueEvidenceReviewer, config::Config, firms_pipeline, forecast,
+    territory::Territory,
+};
 
 const FORECAST_POLL_INTERVAL: Duration = Duration::from_hours(1);
 const DAY: Duration = Duration::from_hours(24);
@@ -40,6 +43,8 @@ pub fn spawn(
     updates: broadcast::Sender<Arc<api::RiskUpdate>>,
 ) {
     tokio::spawn(poll_firms(config.clone(), store.clone(), grid));
+    tokio::spawn(poll_blue_evidence(config.clone(), store.clone()));
+    tokio::spawn(poll_blue_ground_truth(store.clone()));
     tokio::spawn(poll_forecast(
         config,
         store.clone(),
@@ -53,6 +58,40 @@ pub fn spawn(
     // Scientific FWI history is archived directly after the first complete
     // nowcast of each UTC day. The legacy weekly full-row pilot remains
     // available through controlled tooling but is no longer scheduled.
+}
+
+async fn poll_blue_ground_truth(store: Store) {
+    let mut ticker = interval(FORECAST_POLL_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        match store.refresh_blue_ground_truth().await {
+            Ok(refresh) => {
+                let reactive_cases = match store.latest_blue_bulletin().await {
+                    Ok(Some(bulletin)) => store
+                        .ensure_blue_reactive_evidence_cases(&bulletin.id)
+                        .await
+                        .unwrap_or_else(|error| {
+                            tracing::error!(%error, bulletin_id = %bulletin.id, "BLUE reactive evidence selection failed safely");
+                            0
+                        }),
+                    Ok(None) => 0,
+                    Err(error) => {
+                        tracing::error!(%error, "latest BLUE bulletin unavailable for reactive evidence");
+                        0
+                    }
+                };
+                tracing::info!(
+                    satellite_windows = refresh.satellite_windows_upserted,
+                    confirmed_ignitions = refresh.confirmed_ignitions_upserted,
+                    comparisons = refresh.comparisons_inserted,
+                    reactive_cases,
+                    "BLUE Ground Truth refresh complete"
+                );
+            }
+            Err(error) => tracing::error!(%error, "BLUE Ground Truth refresh failed safely"),
+        }
+    }
 }
 
 async fn poll_firms(config: Config, store: Store, grid: H3Grid) {
@@ -187,6 +226,49 @@ async fn poll_forecast(
                         "daily dense scientific archive failed; operational forecast remains published"
                     ),
                 }
+                if config.blue_center_enabled {
+                    let context = BlueForecastContext {
+                        environment: std::env::var("ERYTHEON_ENVIRONMENT")
+                            .unwrap_or_else(|_| "production".to_owned()),
+                        application_revision: std::env::var("ERYTHEON_GIT_REVISION")
+                            .unwrap_or_default(),
+                        application_image: std::env::var("ERYTHEON_IMAGE_REFERENCE")
+                            .unwrap_or_default(),
+                        application_image_digest: std::env::var("ERYTHEON_IMAGE_DIGEST")
+                            .unwrap_or_default(),
+                    };
+                    match store
+                        .capture_blue_daily_bulletin(
+                            summary.computed_at,
+                            summary.source_id,
+                            &context,
+                        )
+                        .await
+                    {
+                        Ok(Some(bulletin)) => {
+                            match store.ensure_blue_evidence_cases(&bulletin.id, 20).await {
+                                Ok(selected) => tracing::info!(
+                                    bulletin_id = %bulletin.id,
+                                    bulletin_date = %bulletin.bulletin_date,
+                                    alerts_24h = bulletin.alerts_24h,
+                                    alerts_48h = bulletin.alerts_48h,
+                                    newly_selected_cases = selected,
+                                    "BLUE daily forecast bulletin and diversified evidence selection available"
+                                ),
+                                Err(error) => tracing::error!(
+                                    %error,
+                                    bulletin_id = %bulletin.id,
+                                    "BLUE bulletin published but evidence selection failed"
+                                ),
+                            }
+                        }
+                        Ok(None) => tracing::debug!("BLUE daily issue slot not reached"),
+                        Err(error) => tracing::error!(
+                            %error,
+                            "BLUE bulletin failed; operational forecast remains published"
+                        ),
+                    }
+                }
                 tracing::info!(
                     source = summary.source_id,
                     computed_at = %summary.computed_at,
@@ -201,6 +283,120 @@ async fn poll_forecast(
                 tracing::error!(%error, "scheduled weather forecast failed; continuing");
                 for source_id in forecast_sources {
                     record_error(&store, source_id, &error.to_string()).await;
+                }
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+async fn poll_blue_evidence(config: Config, store: Store) {
+    if !config.blue_center_enabled {
+        return;
+    }
+    let reviewer = if config.blue_ai_evidence_enabled {
+        if let Some(api_key) = config.openai_api_key {
+            match BlueEvidenceReviewer::new(api_key, config.blue_openai_model) {
+                Ok(reviewer) => Some(reviewer),
+                Err(error) => {
+                    tracing::error!(%error, "BLUE automatic evidence reviewer could not start");
+                    None
+                }
+            }
+        } else {
+            tracing::warn!(
+                "BLUE automatic evidence review is enabled but OPENAI_API_KEY is absent"
+            );
+            None
+        }
+    } else {
+        tracing::info!("BLUE diversified selection enabled; automatic evidence review is disabled");
+        None
+    };
+    let mut ticker = interval(FORECAST_POLL_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        let bulletin = match store.latest_blue_bulletin().await {
+            Ok(Some(bulletin)) => bulletin,
+            Ok(None) => continue,
+            Err(error) => {
+                tracing::error!(%error, "failed to read latest BLUE bulletin for evidence selection");
+                continue;
+            }
+        };
+        if let Err(error) = store.ensure_blue_evidence_cases(&bulletin.id, 20).await {
+            tracing::error!(%error, bulletin_id = %bulletin.id, "BLUE diversified selection failed");
+            continue;
+        }
+        let Some(reviewer) = &reviewer else {
+            continue;
+        };
+        for _ in 0..20 {
+            let claim = match store.claim_blue_evidence_case().await {
+                Ok(Some(claim)) => claim,
+                Ok(None) => break,
+                Err(error) => {
+                    tracing::error!(%error, "failed to claim BLUE evidence case");
+                    break;
+                }
+            };
+            let checksum = reviewer.request_checksum(&claim);
+            let run_id = match store
+                .start_blue_evidence_run(
+                    &claim.id,
+                    claim.attempt_count,
+                    &claim.review_horizon,
+                    claim.stage_attempt_count,
+                    &checksum,
+                    reviewer.model(),
+                )
+                .await
+            {
+                Ok(id) => id,
+                Err(error) => {
+                    tracing::error!(%error, case_id = %claim.id, "failed to start BLUE evidence run");
+                    break;
+                }
+            };
+            match reviewer.review(&claim).await {
+                Ok(result) => {
+                    if let Err(error) = store
+                        .complete_blue_evidence_run(
+                            &claim.id,
+                            &run_id,
+                            &claim.review_horizon,
+                            reviewer.model(),
+                            &result,
+                        )
+                        .await
+                    {
+                        tracing::error!(%error, case_id = %claim.id, "failed to persist BLUE evidence result");
+                    } else {
+                        tracing::info!(
+                            case_id = %claim.id,
+                            commune = %claim.commune_name,
+                            verdict = %result.verdict,
+                            horizon = %claim.review_horizon,
+                            sources = result.sources.len(),
+                            "BLUE automatic evidence review complete"
+                        );
+                    }
+                }
+                Err(error) => {
+                    let safe_error = error.to_string();
+                    if let Err(store_error) = store
+                        .fail_blue_evidence_run(
+                            &claim.id,
+                            &run_id,
+                            &claim.review_horizon,
+                            &safe_error,
+                        )
+                        .await
+                    {
+                        tracing::error!(%store_error, case_id = %claim.id, "failed to persist BLUE evidence failure");
+                    }
+                    tracing::warn!(%error, case_id = %claim.id, "BLUE evidence review failed safely");
                 }
             }
         }
