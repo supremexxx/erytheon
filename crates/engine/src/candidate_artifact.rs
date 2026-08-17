@@ -740,8 +740,8 @@ pub async fn run_packaging(
     let artifact_dir = std::path::PathBuf::from("/tmp/erytheon-experiments-3b9");
     std::fs::create_dir_all(&artifact_dir).context("create artifact dir")?;
 
-    let git_commit = std::env::var("ERYTHEON_GIT_COMMIT_OVERRIDE")
-        .unwrap_or_else(|_| env!("ERYTHEON_GIT_COMMIT").to_owned());
+    let git_commit = std::env::var("FIRESIFT_GIT_COMMIT_OVERRIDE")
+        .unwrap_or_else(|_| env!("FIRESIFT_GIT_COMMIT").to_owned());
     let artifact = build_candidate_artifact(&store, &git_commit, options.seed).await?;
     artifact
         .validate()
