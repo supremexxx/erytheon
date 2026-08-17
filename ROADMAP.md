@@ -146,3 +146,35 @@ La phase doit définir avant implémentation :
 |---|---|---:|---:|---|
 | v1 | actif | oui | n/a | référence opérationnelle |
 | `gbm_isotonic_v2` | inactive | non | non | en attente de P3 |
+
+## Open-source track
+
+The scientific/product roadmap above (4A.3 → 4B → P3) and the open-source
+readiness track below are independent — open-sourcing the repository does
+not accelerate or authorize model activation, and stabilizing the console
+does not require public release. Neither track implies commitments beyond
+what's stated here; both can be reprioritized independently.
+
+- **Phase A — Open-source readiness** (this work): security audit,
+  licensing, documentation reorganization, community files. Tracked in
+  [`OPEN_SOURCE_READINESS_REPORT.md`](OPEN_SOURCE_READINESS_REPORT.md).
+- **Phase B — Public research release**: make the GitHub repository
+  public, cut a tagged release, verify the local demo works from a clean
+  checkout. No infrastructure or model change implied.
+- **Phase C — Public web platform**: map, forecasts, explainability, a
+  public scientific console. Design sketch only today — see
+  [`docs/public-platform.md`](docs/public-platform.md).
+- **Phase D — Prospective validation**: immutable forecast archive,
+  matching against observed events, long-term evaluation. Not
+  implemented — see
+  [`docs/scientific-limitations.md`](docs/scientific-limitations.md#prospective-validation-is-not-implemented-yet).
+- **Phase E — Shadow candidate** (same content as internal **P3** above):
+  the candidate receives live cases, serves no users, and is evaluated for
+  drift and calibration.
+- **Phase F — Scientific decision**: based on Phase E's results, abandon
+  the candidate, retrain it, extend the shadow period, promote it, or
+  start a v3. This is always an explicit, documented decision — never
+  automatic (see [`GOVERNANCE.md`](GOVERNANCE.md)).
+
+None of these phases are commercial commitments or dated promises — they
+describe an intended sequence, not a contract.
