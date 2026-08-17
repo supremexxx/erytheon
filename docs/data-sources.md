@@ -1,8 +1,8 @@
 # Data sources
 
-Erytheon's **code** is dual-licensed MIT OR Apache-2.0 (see
+FireSift's **code** is dual-licensed MIT OR Apache-2.0 (see
 [`LICENSE`](../LICENSE)). That license does not extend to the third-party
-data Erytheon reads, computes over, or displays. Each source below has its
+data FireSift reads, computes over, or displays. Each source below has its
 own license and its own attribution and redistribution rules, and they are
 not all the same. This document exists so that a contributor, a downstream
 user, or a future maintainer can answer "am I allowed to do X with this
@@ -13,7 +13,7 @@ marked `REQUIRES LEGAL / LICENSE REVIEW`, do not assume redistribution is
 safe — check with the current terms of the provider, or with counsel, before
 publishing derived data.
 
-Erytheon does not commit real production datasets to this repository (see
+FireSift does not commit real production datasets to this repository (see
 [Fixtures vs. real data](#fixtures-vs-real-data) below). Discussion of
 "redistribution" below concerns what a deployer downloads and stores
 locally, not what ships in Git.
@@ -42,7 +42,7 @@ per-source sections below for sources checked and exact wording).
 ### NASA FIRMS (Fire Information for Resource Management System)
 
 - **Provider**: NASA / University of Maryland, via the LANCE/FIRMS API.
-- **Usage in Erytheon**: near-real-time VIIRS (S-NPP) thermal anomaly
+- **Usage in FireSift**: near-real-time VIIRS (S-NPP) thermal anomaly
   detections, ingested via `crates/ingest/src/firms.rs`
   (`https://firms.modaps.eosdis.nasa.gov/api/area/csv`).
 - **Access**: requires a free `FIRMS_MAP_KEY` (`.env.example`), obtained by
@@ -51,11 +51,11 @@ per-source sections below for sources checked and exact wording).
   attribution requested to NASA FIRMS/LANCE. See
   <https://www.earthdata.nasa.gov/data/tools/firms>. NASA/US-government-produced
   data is not subject to US copyright, but attribution to FIRMS/LANCE is
-  the expected practice and is what Erytheon follows.
+  the expected practice and is what FireSift follows.
 - **Redistribution**: not committed to this repository (a small anonymized
   fixture is used for local development — see `testdata/`).
 - **Important limitation**: FIRMS reports observed thermal anomalies, not
-  predictions. It tells Erytheon a fire (or another heat source) was
+  predictions. It tells FireSift a fire (or another heat source) was
   detected recently; it says nothing by itself about future ignitions.
 
 ## Weather
@@ -84,15 +84,15 @@ per-source sections below for sources checked and exact wording).
   data (`crates/ingest/src/ecmwf_open.rs`,
   `https://data.ecmwf.int/forecasts`).
 - **License**: `CLEAR`. ECMWF's entire Real-time Catalogue (including the
-  IFS forecasts Erytheon reads) has been published under **CC-BY-4.0**
+  IFS forecasts FireSift reads) has been published under **CC-BY-4.0**
   since ECMWF completed its transition to fully open data on
   **2025-10-01** — full native resolution, no data cost. See
   <https://www.ecmwf.int/en/forecasts/datasets/open-data> and
   <https://www.ecmwf.int/en/about/media-centre/news/2025/ecmwf-makes-its-entire-real-time-catalogue-open-all>.
   Attribution example from ECMWF's own guidance: *"Adapted from 'ECMWF IFS
   Forecast Data' by ECMWF, licensed under CC BY 4.0, available at
-  <https://data.ecmwf.int/forecasts/>."* This is Erytheon's **primary**
-  weather-forecast source (Erytheon reads it credential-free).
+  <https://data.ecmwf.int/forecasts/>."* This is FireSift's **primary**
+  weather-forecast source (FireSift reads it credential-free).
 - **Redistribution**: raw GRIB2 caches are not committed (`.gitignore`
   excludes `data/`); attribution to ECMWF should be preserved wherever
   derived forecast values are shown.
@@ -116,15 +116,15 @@ per-source sections below for sources checked and exact wording).
      Commercial deployment through the free tier is explicitly prohibited
      by Open-Meteo's terms; it requires a paid plan (Standard/Professional/
      Enterprise). See <https://open-meteo.com/en/terms>.
-  Erytheon calling the free API is only within terms for non-commercial
-  use of the API service — which matches Erytheon's current
+  FireSift calling the free API is only within terms for non-commercial
+  use of the API service — which matches FireSift's current
   non-commercial research positioning (see root README), but **is not
   automatically true for every deployer**. Anyone standing up a
-  commercial or ad-supported Erytheon deployment must either stop routing
+  commercial or ad-supported FireSift deployment must either stop routing
   through the free Open-Meteo fallback or obtain a paid Open-Meteo plan —
-  Erytheon's own MIT/Apache-2.0 code license does not make that decision
+  FireSift's own MIT/Apache-2.0 code license does not make that decision
   for you. The API service's server code itself is separately licensed
-  AGPLv3 by Open-Meteo (irrelevant to Erytheon, which only calls the
+  AGPLv3 by Open-Meteo (irrelevant to FireSift, which only calls the
   hosted API — no Open-Meteo source is vendored here).
 - **Recommendation**: keep `OPEN_METEO_*`/fallback usage explicit and
   configurable (already the case — it only activates when ECMWF/Météo-France
@@ -155,8 +155,8 @@ per-source sections below for sources checked and exact wording).
   request** and may require a specific convention/license from the
   Ministry; it is not a blanket Etalab Licence Ouverte grant the way
   Météo-France's or INSEE's data is. Non-commercial, research use — which
-  is Erytheon's current positioning (see root README) — is not subject to
-  that restriction. **If Erytheon or a fork of it is ever positioned
+  is FireSift's current positioning (see root README) — is not subject to
+  that restriction. **If FireSift or a fork of it is ever positioned
   commercially again, BDIFF reuse terms must be re-checked and a prior
   request made before continuing to use BDIFF data.**
 - **Redistribution**: not committed; a small anonymized fixture
@@ -235,7 +235,7 @@ per-source sections below for sources checked and exact wording).
 
 ### Administrative boundaries
 
-- **Provider**: not fixed by Erytheon — typically IGN administrative
+- **Provider**: not fixed by FireSift — typically IGN administrative
   boundaries (e.g. ADMIN EXPRESS) in a French deployment, but the code
   does not pin a specific provider, file, or version.
 - **Usage**: `TERRITORY_GEOJSON_PATH`.
@@ -245,7 +245,7 @@ per-source sections below for sources checked and exact wording).
   `deploy/oracle/.env.example`, and `.env.production.example` merely shows
   an *illustrative* path (`data/boundaries/departements-1000m.geojson`)
   under the gitignored `data/` directory, not a real committed file. There
-  is therefore no license to review here — Erytheon ships no boundary
+  is therefore no license to review here — FireSift ships no boundary
   data at all. **Whoever configures `TERRITORY_GEOJSON_PATH` for a real
   deployment supplies their own boundary file and is responsible for
   confirming its license** (IGN's Etalab Licence Ouverte 2.0 is the

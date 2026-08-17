@@ -1,4 +1,4 @@
-# Erytheon v0.5.0 — First Open Research Release
+# FireSift v0.5.0 — First Open Research Release
 
 Published as the `v0.5.0` tag and GitHub release. See
 [`OPEN_SOURCE_READINESS_REPORT.md`](../OPEN_SOURCE_READINESS_REPORT.md)
@@ -7,18 +7,18 @@ for the full readiness assessment behind this release, including why
 
 ---
 
-## Erytheon is now open source
+## FireSift is now open source
 
-Erytheon — an experimental open-source platform for modelling and mapping
+FireSift — an experimental open-source platform for modelling and mapping
 **wildfire ignition risk** from weather, satellite observations,
 territorial features, and historical fire records — is now published as
 open source, dual-licensed MIT OR Apache-2.0.
 
-This release does not claim Erytheon is a validated operational forecasting
-product. It claims the opposite, honestly: Erytheon is a research
+This release does not claim FireSift is a validated operational forecasting
+product. It claims the opposite, honestly: FireSift is a research
 codebase, with a documented scientific foundation, real limitations, and
 an explicit non-goal of overclaiming what it can currently do. See
-[What Erytheon is / is not](../README.md#what-erytheon-is) in the README.
+[What FireSift is / is not](../README.md#what-firesift-is) in the README.
 
 ## What's in this release
 
@@ -37,7 +37,7 @@ an explicit non-goal of overclaiming what it can currently do. See
 - **Reproducible local demo**: `docker compose up -d && cargo run -p
   engine -- run`, running entirely on small versioned fixtures — no API
   keys or real datasets required. See the [Quick start](../README.md#quick-start).
-- **Data source licensing**: every third-party data source Erytheon reads
+- **Data source licensing**: every third-party data source FireSift reads
   (NASA FIRMS, Météo-France, ECMWF, Open-Meteo, BDIFF, Prométhée,
   OpenStreetMap, CORINE Land Cover, INSEE) is documented with its actual
   license and redistribution terms, verified against each provider's
@@ -57,8 +57,8 @@ an explicit non-goal of overclaiming what it can currently do. See
   status is unchanged by this release, and stays unchanged until a
   separate, explicit shadow-scoring and promotion process runs — see
   [`GOVERNANCE.md`](../GOVERNANCE.md).
-- Not a claim that Erytheon is ready for institutional, commercial, or
-  civil-protection use. See [What Erytheon is not](../README.md#what-erytheon-is-not).
+- Not a claim that FireSift is ready for institutional, commercial, or
+  civil-protection use. See [What FireSift is not](../README.md#what-firesift-is-not).
 
 ## Versioning note
 

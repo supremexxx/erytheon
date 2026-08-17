@@ -1,6 +1,6 @@
 # Models
 
-Erytheon separates a **physical** fire-danger component (the Canadian Fire
+FireSift separates a **physical** fire-danger component (the Canadian Fire
 Weather Index, deterministic, not learned) from a **human-ignition**
 component (learned from historical labels). This page documents both
 generations of the learned component and their current status. Nothing on

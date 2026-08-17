@@ -1,6 +1,6 @@
 # Scientific limitations
 
-Erytheon is an experimental research platform, not a validated operational
+FireSift is an experimental research platform, not a validated operational
 forecasting product. This page lists its known limitations without
 minimizing them. A credible scientific project is expected to state its
 weaknesses at least as clearly as its results — this document is that
@@ -12,7 +12,7 @@ not a criticism of the project.
 
 ## The score is a relative risk, not an absolute probability
 
-Erytheon's output is a **relative ignition-risk score**. It is not:
+FireSift's output is a **relative ignition-risk score**. It is not:
 
 - an absolute probability that a fire will occur;
 - a guarantee that a fire will or will not start;
@@ -64,7 +64,7 @@ detailed accounting.
 
 Because true ignitions are rare, training datasets use negative sampling
 (see [`docs/scientific-methodology.md`](scientific-methodology.md#negative-sampling-and-class-balance)).
-**The ratio of positive to negative rows in any Erytheon dataset is a
+**The ratio of positive to negative rows in any FireSift dataset is a
 sampling design choice, not the real-world prevalence of fire ignition
 events.** Metrics computed on such a dataset characterize model
 discrimination on that sampled distribution — they are not detection rates
@@ -74,13 +74,13 @@ distribution of cell-days.
 ## FIRMS observes, it does not predict
 
 NASA FIRMS reports satellite-detected thermal anomalies — it is an
-after-the-fact observation of heat, not a forecast. Erytheon uses FIRMS as
+after-the-fact observation of heat, not a forecast. FireSift uses FIRMS as
 one input signal among several; it is never treated, by itself, as a
 prediction of a future ignition.
 
 ## Coverage and freshness depend on upstream sources
 
-Erytheon's risk surfaces are only as fresh and complete as the weather,
+FireSift's risk surfaces are only as fresh and complete as the weather,
 satellite, and territorial sources feeding them. A degraded or stale
 upstream source (a missed Météo-France poll, an ECMWF outage, a FIRMS gap)
 degrades the resulting score without necessarily being visually obvious —
@@ -105,7 +105,7 @@ particular:
   forecast archive, so **false negatives are not currently measured** —
   the workflow can show it found evidence where expected, but not
   systematically show what it missed.
-- Because of that, Erytheon **cannot yet compute or publish recall,
+- Because of that, FireSift **cannot yet compute or publish recall,
   specificity, or a global precision figure** from this system. What
   exists today is case-level evidence-gathering, not an aggregate
   performance metric.
@@ -146,7 +146,7 @@ or sampling should re-examine this question explicitly (see
 ## No cherry-picking, including for future validation
 
 As a matter of project philosophy, once prospective validation exists (see
-above), Erytheon commits to recording and publishing failures — false
+above), FireSift commits to recording and publishing failures — false
 positives, false negatives, data outages, periods of low confidence —
 alongside successes. A track record with only favorable examples would not
 be credible, and is not the goal.

@@ -1,6 +1,6 @@
 # Reproducibility
 
-This page is for someone who wants to reproduce Erytheon's local
+This page is for someone who wants to reproduce FireSift's local
 development environment, its scientific experiments, or its reported
 metrics — not just run the service.
 

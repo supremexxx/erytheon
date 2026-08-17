@@ -1,6 +1,6 @@
 # Scientific methodology
 
-This page explains what Erytheon models, at what spatial and temporal
+This page explains what FireSift models, at what spatial and temporal
 resolution, from which signals, and how it evaluates candidate models
 before any promotion decision. It is written for a developer or data
 scientist who wants to understand the system well enough to critique it,
@@ -11,9 +11,9 @@ For a per-decision derivation with more detail, see the
 `NEGATIVE_SAMPLING_DESIGN.md`, and `MODEL_TRAINING_PROTOCOL.md` under
 `docs/research/`.
 
-## What Erytheon models
+## What FireSift models
 
-Erytheon estimates a **relative wildfire ignition risk score** — not an
+FireSift estimates a **relative wildfire ignition risk score** — not an
 absolute probability, not a guarantee, and not an official alert. The
 target concept is: *given weather, satellite, territorial, and historical
 signals for a place and time, how does its ignition risk compare to other
@@ -75,7 +75,7 @@ rather than including every non-event cell-day. Several sampling window
 strategies were compared (see `docs/research/reports/NEGATIVE_SAMPLING_DESIGN.md`)
 before selecting one for the v1 candidate dataset.
 
-**This means the positive/negative ratio in Erytheon's datasets is a
+**This means the positive/negative ratio in FireSift's datasets is a
 sampling design choice, not the real-world prevalence of fire ignition.**
 A dataset "balance" of, say, 1 positive to 4 negatives (the default
 `HUMAN_MODEL_NEGATIVES_PER_POSITIVE=4`) says nothing about how rare fires
@@ -98,7 +98,7 @@ comparison" for the specific correction used.
 
 ## Models
 
-Erytheon separates a **physical** component (FWI, deterministic, not
+FireSift separates a **physical** component (FWI, deterministic, not
 learned) from a **human** component (learned from historical labels). The
 two are fused into the operational score. See
 [`docs/models.md`](models.md) for the full v1 (active) and candidate v2
