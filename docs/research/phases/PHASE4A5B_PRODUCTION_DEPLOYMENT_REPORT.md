@@ -11,7 +11,7 @@ du même projet (« ERYTHEON project handover ») puis vérifié en direct — p
 VPS **Hostinger** :
 
 ```text
-hôte      187.77.161.204 (nom d'hôte système : srv1840103)
+hôte      <VPS_PUBLIC_IP> (nom d'hôte système : <VPS_HOSTNAME>)
 user      pyrorisk
 clé       ~/.ssh/pyrorisk_hostinger_ed25519
 répertoire /opt/pyrorisk (pas un clone git — arbre de fichiers déployé par rsync)
