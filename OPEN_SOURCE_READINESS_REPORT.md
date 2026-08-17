@@ -1,5 +1,11 @@
 # Erytheon — Open Source Readiness Report
 
+> **Historical record.** The project was renamed from Erytheon to
+> **FireSift** after this audit was written. This report is preserved
+> as-is, describing what was true under the Erytheon name at the time —
+> see [`CHANGELOG.md`](CHANGELOG.md) for the rename. Current
+> documentation (README, `docs/`) refers to FireSift.
+
 Date of this audit: 2026-08-17 (four passes: an initial readiness pass, a
 follow-up final release-engineering pass, a closing pass resolving the
 remaining blockers, and a final consistency pass fixing a self-contained
