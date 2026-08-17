@@ -7,12 +7,9 @@ weather index, a learned human-ignition component, and an H3 grid to
 produce a relative risk score — not a forecast guarantee, and not an
 official alert.
 
-[![CI](https://github.com/OWNER/REPOSITORY/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPOSITORY/actions/workflows/ci.yml)
+[![CI](https://github.com/supremexxx/erytheon/actions/workflows/ci.yml/badge.svg)](https://github.com/supremexxx/erytheon/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)
 ![Rust](https://img.shields.io/badge/rust-1.97.1-orange)
-
-> Replace `OWNER/REPOSITORY` in the badge above once this repository has a
-> public GitHub location.
 
 ## What Erytheon is
 
@@ -79,7 +76,7 @@ work, but weather/forecast ingestion silently fails over to an empty
 result — see [`docs/deployment.md`](docs/deployment.md) if you hit this.
 
 ```sh
-git clone <this-repository>
+git clone https://github.com/supremexxx/erytheon.git
 cd erytheon
 cp .env.example .env
 docker compose up -d
