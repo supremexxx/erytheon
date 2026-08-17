@@ -8,7 +8,7 @@ Statut : **déploiement terminé**
 La console scientifique read-only est disponible à l'adresse :
 
 ```text
-https://pyrorisk.187.77.161.204.sslip.io/science
+https://pyrorisk.<VPS_PUBLIC_IP>.sslip.io/science
 ```
 
 Les pages, assets et API scientifiques sont protégés par HTTP Basic dans
@@ -59,13 +59,13 @@ en retard de 0. Aucun push n'a été effectué.
 
 Hôte :
 
-- serveur : `srv1840103`
+- serveur : `<VPS_HOSTNAME>`
 - compte : `pyrorisk`
 - fichiers de déploiement :
   `/opt/pyrorisk/deploy/oracle/compose.yml`,
   `/opt/pyrorisk/deploy/oracle/Caddyfile` et
   `/opt/pyrorisk/deploy/oracle/.env`
-- domaine : `pyrorisk.187.77.161.204.sslip.io`
+- domaine : `pyrorisk.<VPS_PUBLIC_IP>.sslip.io`
 - Caddy : `2.10.2`
 
 Architecture observée :
