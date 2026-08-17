@@ -1071,14 +1071,14 @@
   function mountOperationalMap() {
     const mapRoot = content.querySelector(".sci-operational-map");
     if (!mapRoot) return;
-    if (!window.ErytheonOperationalMap || !window.L) {
+    if (!window.FireSiftOperationalMap || !window.L) {
       const loading = mapRoot.querySelector("#map-loading");
       if (loading) loading.innerHTML = "<span>Bibliothèque cartographique indisponible.</span>";
       const connection = mapRoot.querySelector("#connection-label");
       if (connection) connection.textContent = "Carte indisponible";
       return;
     }
-    activeOperationalMap = window.ErytheonOperationalMap.mount({
+    activeOperationalMap = window.FireSiftOperationalMap.mount({
       root: mapRoot,
       presentation: "scientific",
     });
@@ -1108,7 +1108,7 @@
       if (sequence !== renderSequence) return;
       content.innerHTML = html;
       if (path === "overview") mountOperationalMap();
-      document.title = `ERYTHEON — ${content.querySelector("h1")?.textContent ?? "Console scientifique"}`;
+      document.title = `FireSift — ${content.querySelector("h1")?.textContent ?? "Console scientifique"}`;
     } catch (error) {
       if (sequence !== renderSequence) return;
       content.innerHTML = `<div class="sci-error" role="alert"><span aria-hidden="true"></span><div><strong>Erreur de chargement</strong><p>${escapeHtml(error.message)}</p></div></div>`;

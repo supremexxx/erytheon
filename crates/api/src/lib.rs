@@ -1,4 +1,4 @@
-//! Read-only HTTP and WebSocket API for `PyroRisk`.
+//! Read-only HTTP and WebSocket API for `FireSift`.
 
 use std::{str::FromStr as _, sync::Arc};
 

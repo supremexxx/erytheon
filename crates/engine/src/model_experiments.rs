@@ -1430,7 +1430,7 @@ async fn run_one_dataset_experiment(
     let experiment_id = format!("3b7_{role}_{seed}");
     let manifest = ExperimentManifest {
         experiment_id: experiment_id.clone(),
-        git_commit: env!("ERYTHEON_GIT_COMMIT").to_owned(),
+        git_commit: env!("FIRESIFT_GIT_COMMIT").to_owned(),
         dataset_logical_id: logical_id.to_owned(),
         dataset_row_fingerprint_before: fingerprint_before,
         features: FEATURE_NAMES.iter().map(|s| (*s).to_owned()).collect(),

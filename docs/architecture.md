@@ -1,6 +1,6 @@
 # Architecture
 
-Erytheon is a single Rust Cargo workspace of nine crates, one PostgreSQL/
+FireSift is a single Rust Cargo workspace of nine crates, one PostgreSQL/
 PostGIS database, and one HTTP API surface with three parts: an
 operational dashboard, a read-only scientific console, and a read-only
 territorial (municipality-scoped) view.
@@ -87,7 +87,7 @@ historical migrations are treated as immutable once applied (see
   concept for municipal stakeholders; it is a technically useful
   read-only geographic view and is kept, but should be described publicly
   as a **scoped territorial dashboard**, not a commercial client portal —
-  the project no longer positions Erytheon as a paid product (see the root
+  the project no longer positions FireSift as a paid product (see the root
   [`README.md`](../README.md) for the current positioning).
 
 All three surfaces are served by the same `api` crate and the same `engine`
@@ -95,7 +95,7 @@ binary; there is no separate write-capable admin surface.
 
 ## Deployment shape
 
-Erytheon runs as a single container (see [`Dockerfile`](../Dockerfile))
+FireSift runs as a single container (see [`Dockerfile`](../Dockerfile))
 against a private PostgreSQL/PostGIS instance, with a reverse proxy
 (Caddy) as the only public entry point. See
 [`docs/deployment.md`](deployment.md) for a generic deployment guide.

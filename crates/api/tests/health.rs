@@ -44,7 +44,7 @@ async fn dashboard_and_health_are_served() {
         .await
         .expect("dashboard body should be readable");
     assert!(
-        String::from_utf8_lossy(&dashboard_body).contains("ERYTHEON — Prévision des incendies")
+        String::from_utf8_lossy(&dashboard_body).contains("FireSift — Prévision des incendies")
     );
 
     let config_response = app

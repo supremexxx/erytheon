@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Erytheon are documented in this file.
+All notable changes to FireSift are documented in this file.
 
 ## [Unreleased]
 

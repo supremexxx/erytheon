@@ -1,6 +1,6 @@
 # Deployment
 
-This is a generic guide to running Erytheon in production. It intentionally
+This is a generic guide to running FireSift in production. It intentionally
 does not describe any specific hosting provider, IP address, or hostname —
 those belong to whoever operates a given deployment, not to this
 repository. A reference deployment against Oracle Cloud's free tier exists
@@ -78,7 +78,7 @@ bring-up.
 
 ## What this repository will not do for you
 
-Per project scope, Erytheon does not ship Kubernetes manifests, Terraform,
+Per project scope, FireSift does not ship Kubernetes manifests, Terraform,
 Helm charts, or a multi-service orchestration layer — the operational
 shape above (one container, one database, one reverse proxy) is
 deliberately simple. See [`ROADMAP.md`](../ROADMAP.md) for what's actually

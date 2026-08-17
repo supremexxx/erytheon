@@ -41,14 +41,14 @@ Computation timestamp
 
 ## Disclaimer (required wherever risk output is shown)
 
-> Erytheon is an experimental research project. Its outputs are not
+> FireSift is an experimental research project. Its outputs are not
 > official wildfire warnings, emergency alerts, or guarantees that a fire
 > will or will not occur. Always follow information and instructions
 > issued by competent authorities.
 
 This text (or an equivalent) should appear in the root README, in
 scientific documentation, and on any future public site — see
-[`README.md`](../README.md#what-erytheon-is-not).
+[`README.md`](../README.md#what-firesift-is-not).
 
 ## Future public performance page (design only, not implemented)
 

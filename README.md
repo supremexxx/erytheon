@@ -1,6 +1,6 @@
-# Erytheon
+# FireSift
 
-Erytheon is an experimental open-source platform for modelling and mapping
+FireSift is an experimental open-source platform for modelling and mapping
 **wildfire ignition risk** from weather, satellite observations, territorial
 features, and historical fire records. It combines a deterministic fire
 weather index, a learned human-ignition component, and an H3 grid to
@@ -11,7 +11,7 @@ official alert.
 ![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)
 ![Rust](https://img.shields.io/badge/rust-1.97.1-orange)
 
-## What Erytheon is
+## What FireSift is
 
 - A Rust workspace that ingests weather, satellite, and territorial data,
   computes the Canadian Fire Weather Index, and fuses it with a learned
@@ -23,7 +23,7 @@ official alert.
   scientific console (`/science`) exposes dataset, pipeline, and model
   registry state as structured, read-only data, not just a dashboard.
 
-## What Erytheon is not
+## What FireSift is not
 
 - **Not an official wildfire warning or civil-security alert.** Always
   follow guidance from competent authorities.
@@ -34,7 +34,7 @@ official alert.
 - **Not a probability.** The risk score is *relative* — it ranks
   conditions against each other, it does not state "there is an X% chance
   of a fire here."
-- **Not a commercial product.** Erytheon was previously explored as a
+- **Not a commercial product.** FireSift was previously explored as a
   potential product for municipalities, insurers, and public institutions.
   That direction is on hold: the project does not yet have enough
   real-world validation to be presented honestly as a professional tool.
@@ -161,7 +161,7 @@ Full detail: [`docs/scientific-limitations.md`](docs/scientific-limitations.md).
 
 ## Data sources
 
-NASA FIRMS, Météo-France, ECMWF IFS Open Data (Erytheon's primary,
+NASA FIRMS, Météo-France, ECMWF IFS Open Data (FireSift's primary,
 credential-free forecast source), BDIFF, Prométhée, OpenStreetMap, CORINE
 Land Cover, and INSEE. Each has its own license, attribution requirements,
 and redistribution restrictions — **the code license does not cover the
@@ -170,7 +170,7 @@ per-source breakdown and [`NOTICE.md`](NOTICE.md) for a quick attribution
 reference. Real datasets are not committed to this repository (only small
 development fixtures under `testdata/`).
 
-Erytheon can optionally use **Open-Meteo** as a fallback provider when
+FireSift can optionally use **Open-Meteo** as a fallback provider when
 ECMWF/Météo-France are unavailable. Its weather data is CC-BY-4.0, but its
 free API service is contractually limited to non-commercial use — users
 are responsible for complying with the terms applicable to their own
@@ -224,7 +224,7 @@ separately; see [`docs/data-sources.md`](docs/data-sources.md).
 
 ---
 
-*Erytheon is an experimental research project. Its outputs are not
+*FireSift is an experimental research project. Its outputs are not
 official wildfire warnings, emergency alerts, or guarantees that a fire
 will or will not occur. Always follow information and instructions issued
 by competent authorities.*

@@ -1,6 +1,6 @@
-# Contributing to Erytheon
+# Contributing to FireSift
 
-Thanks for considering a contribution. Erytheon is a research platform
+Thanks for considering a contribution. FireSift is a research platform
 before it is a product — the bar for a change is not just "does it work"
 but "is it scientifically justified and honestly described."
 

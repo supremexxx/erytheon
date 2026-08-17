@@ -16,7 +16,7 @@ never sufficient by itself to activate or promote anything.
 
 ## Motivation
 
-<!-- Why does this matter for Erytheon's stated goal (modelling relative
+<!-- Why does this matter for FireSift's stated goal (modelling relative
      wildfire ignition risk)? -->
 
 ## Data

@@ -417,7 +417,7 @@
       const lastSuccess = source.last_success ? relativeDate(source.last_success) : "aucun succès";
       item.innerHTML = `
         <i class="source-light" aria-hidden="true"></i>
-        <span class="source-name">${escapeHtml(SOURCE_NAMES[source.id] || source.id)} <button class="info-tip" type="button" aria-label="Comprendre ${escapeHtml(SOURCE_NAMES[source.id] || source.id)}" data-tooltip="${escapeHtml(SOURCE_DESCRIPTIONS[source.id] || "Source de données utilisée par le modèle ERYTHEON.")}">?</button></span>
+        <span class="source-name">${escapeHtml(SOURCE_NAMES[source.id] || source.id)} <button class="info-tip" type="button" aria-label="Comprendre ${escapeHtml(SOURCE_NAMES[source.id] || source.id)}" data-tooltip="${escapeHtml(SOURCE_DESCRIPTIONS[source.id] || "Source de données utilisée par le modèle FireSift.")}">?</button></span>
         <span class="source-meta" title="${escapeHtml(source.recent_error || "")}">${source.recent_error ? "ERREUR" : missingHumanHistory ? "NON CHARGÉE" : `${formatInteger(source.observation_count)} · ${lastSuccess}`}</span>
       `;
       return item;
@@ -737,7 +737,7 @@
     return controller;
   }
 
-  window.ErytheonOperationalMap = Object.freeze({
+  window.FireSiftOperationalMap = Object.freeze({
     mount: mountOperationalMap,
   });
 
