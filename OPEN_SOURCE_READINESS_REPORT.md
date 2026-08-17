@@ -387,7 +387,7 @@ blockers:
 2. Making the GitHub repository actually public remains the maintainer's
    own action — this session did not and will not flip that setting.
 3. Cut the `v0.5.0` tag using the draft in
-   [`docs/release-notes-v0.5.0-draft.md`](docs/release-notes-v0.5.0-draft.md)
+   [`docs/release-notes-v0.5.0.md`](docs/release-notes-v0.5.0.md)
    as a starting point — review and edit before publishing, don't publish
    verbatim.
 4. At or after going public: enable GitHub private vulnerability
@@ -397,3 +397,28 @@ blockers:
    (Phase B public release → Phase C public platform → Phase D
    prospective validation → Phase E shadow candidate → Phase F scientific
    decision).
+
+## Published
+
+Executed 2026-08-17, on explicit instruction from William Ducamp (see
+[Decision record](#decision-record)):
+
+- All work from this audit committed to `main` in 15 logically-scoped
+  commits, merged from `claude/erytheon-open-source-d0bfed` with
+  `--no-ff`, and pushed to `origin/main`.
+- GitHub repository `supremexxx/erytheon` visibility changed from private
+  to **public**.
+- Enabled: secret scanning, secret scanning push protection, private
+  vulnerability reporting, Dependabot alerts, Dependabot security
+  updates.
+- Fixed the live repository description (was still the old, commercial
+  "professional platform" framing from before this project's
+  repositioning) and set accurate topics.
+- README and Quick Start verified rendering correctly on the live public
+  GitHub page, including the license badges GitHub auto-detected from
+  `LICENSE-MIT`/`LICENSE-APACHE`, and internal doc links resolving.
+- `v0.5.0` tagged and published as a GitHub Release from
+  [`docs/release-notes-v0.5.0.md`](docs/release-notes-v0.5.0.md).
+
+Phase B of the "Open-source track" in `ROADMAP.md` is complete as of this
+entry.

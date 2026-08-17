@@ -1,11 +1,8 @@
-# Erytheon v0.5.0 — First Open Research Release (draft)
+# Erytheon v0.5.0 — First Open Research Release
 
-**Status: DRAFT.** No `v0.5.0` tag or GitHub release exists yet. This is
-release-notes content prepared ahead of that decision, for the maintainer
-to review, edit, and publish when they choose to cut the release — not an
-announcement that it has happened. See
+Published as the `v0.5.0` tag and GitHub release. See
 [`OPEN_SOURCE_READINESS_REPORT.md`](../OPEN_SOURCE_READINESS_REPORT.md)
-for the readiness assessment behind this recommendation, including why
+for the full readiness assessment behind this release, including why
 `v0.5.0` (not `v1.0.0`) is the right version number here.
 
 ---

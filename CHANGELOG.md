@@ -4,6 +4,8 @@ All notable changes to Erytheon are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-17 - First Open Research Release
+
 ### Added
 
 - Copyright holder set in `LICENSE-MIT`/`LICENSE-APACHE`:
@@ -11,8 +13,8 @@ All notable changes to Erytheon are documented in this file.
   unchanged.
 - `NOTICE.md`, a quick-reference attribution list for all data sources
   (full detail stays in `docs/data-sources.md`).
-- `docs/release-notes-v0.5.0-draft.md` — draft release notes for a future
-  `v0.5.0` tag. No tag or GitHub release was created.
+- `docs/release-notes-v0.5.0.md` — release notes published as this
+  `v0.5.0` GitHub Release.
 - `LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE` matching the `MIT OR Apache-2.0`
   license already declared in `Cargo.toml`.
 - `docs/data-sources.md` documenting per-source data licensing, attribution,
