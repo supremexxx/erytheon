@@ -2,6 +2,13 @@
 
 FROM rust:1.94-bookworm AS builder
 
+# Per-architecture cache scope: without it, concurrent `docker buildx build
+# --platform linux/amd64,linux/arm64` runs share one cache mount and race
+# writing into the same cargo registry directory (`File exists (os error
+# 17)` unpacking a crate). TARGETARCH ("amd64"/"arm64") is a standard
+# BuildKit-provided build arg; it just needs declaring to use it here.
+ARG TARGETARCH
+
 ARG ERYTHEON_GIT_COMMIT=unknown
 ENV ERYTHEON_GIT_COMMIT=${ERYTHEON_GIT_COMMIT}
 
@@ -10,8 +17,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY migrations ./migrations
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry \
+    --mount=type=cache,id=cargo-target-${TARGETARCH},target=/src/target \
     cargo build --locked --release -p engine && \
     cp /src/target/release/pyrorisk /tmp/pyrorisk
 
