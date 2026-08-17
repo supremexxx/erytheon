@@ -1,164 +1,212 @@
-# ERYTHEON
+# Erytheon
 
-ERYTHEON est une plateforme Rust de suivi et d'analyse du risque d'ignition des feux de végétation. Elle combine météo incendie, observations satellitaires, données territoriales et historique des départs de feu sur une grille H3. Le dépôt couvre le service opérationnel, la fondation scientifique des datasets, un modèle candidat non actif et une console scientifique privée.
+Erytheon is an experimental open-source platform for modelling and mapping
+**wildfire ignition risk** from weather, satellite observations, territorial
+features, and historical fire records. It combines a deterministic fire
+weather index, a learned human-ignition component, and an H3 grid to
+produce a relative risk score — not a forecast guarantee, and not an
+official alert.
 
-État de référence : **v0.4.2** — intégration de la fondation scientifique et de la console privée.
+[![CI](https://github.com/OWNER/REPOSITORY/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPOSITORY/actions/workflows/ci.yml)
+![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)
+![Rust](https://img.shields.io/badge/rust-1.97.1-orange)
 
-## État actuel
+> Replace `OWNER/REPOSITORY` in the badge above once this repository has a
+> public GitHub location.
 
-| Composant | État |
-|---|---|
-| Service opérationnel | Déployé et suivi sur VPS privé |
-| Modèle v1 | **Actif**, seul modèle servi |
-| Candidat `gbm_isotonic_v2` | Enregistré **inactive**, jamais servi |
-| Candidate scoring | Non activé |
-| Shadow scoring | Non commencé |
-| Console scientifique | Déployée en lecture seule, accès privé protégé par Caddy |
-| Schéma PostgreSQL | 17 migrations appliquées en production |
-| Révision applicative déployée | `849039385a14f95df0a95cca69e5987d3b311478` |
-| Révision intégrée sur `main` | `d4730fda09571db491d0611e3308f96d1ee03ebb` |
+## What Erytheon is
 
-La production reste volontairement sur la révision applicative `8490393`. L'intégration documentaire et les correctifs de CI présents sur `main` ne constituent pas une instruction de redéploiement.
+- A Rust workspace that ingests weather, satellite, and territorial data,
+  computes the Canadian Fire Weather Index, and fuses it with a learned
+  human-ignition-propensity score over an H3 hex grid.
+- A research codebase with a documented, versioned scientific foundation:
+  labeled datasets, a negative-sampling design, a trained candidate model,
+  and a paired historical comparison against the operational model.
+- A platform meant to be inspected, reproduced, and extended — the
+  scientific console (`/science`) exposes dataset, pipeline, and model
+  registry state as structured, read-only data, not just a dashboard.
+
+## What Erytheon is not
+
+- **Not an official wildfire warning or civil-security alert.** Always
+  follow guidance from competent authorities.
+- **Not a validated operational forecasting product.** It has not
+  undergone the kind of real-world, prospective validation that would
+  justify presenting it as professionally reliable — see
+  [Scientific status](#scientific-status) below.
+- **Not a probability.** The risk score is *relative* — it ranks
+  conditions against each other, it does not state "there is an X% chance
+  of a fire here."
+- **Not a commercial product.** Erytheon was previously explored as a
+  potential product for municipalities, insurers, and public institutions.
+  That direction is on hold: the project does not yet have enough
+  real-world validation to be presented honestly as a professional tool.
+  It is repositioned here as an open research platform first.
+
+## Features
+
+- H3 hexagonal risk surfaces at `nowcast`, `+6h`, `+24h`, and `+48h`
+  horizons.
+- Canadian Fire Weather Index (FFMC, DMC, DC, ISI, BUI, FWI) computed in
+  pure Rust, with a documented reference-fixture validation.
+- Multi-source ingestion: NASA FIRMS satellite detections, Météo-France
+  observations, ECMWF IFS Open Data forecasts (credential-free) with an
+  Open-Meteo fallback, BDIFF and Prométhée historical fire records,
+  OpenStreetMap / CORINE Land Cover / INSEE / territorial calendars for
+  static features.
+- Explainable scoring: every risk cell can be broken down into its
+  contributing factors via `GET /risk/cell/{h3}`.
+- A read-only scientific console exposing dataset versions, pipeline and
+  data-quality status, model registry state, and system integrity.
+- An experimental, non-active `gbm_isotonic_v2` candidate model, trained
+  and evaluated but never served — see [Scientific status](#scientific-status).
 
 ## Architecture
 
-ERYTHEON est un workspace Cargo composé de neuf crates :
+Nine crates in one Cargo workspace (`engine`, `api`, `store`, `ingest`,
+`dataset`, `quality`, `risk`, `fwi`, `grid`) over PostgreSQL/PostGIS. Full
+diagram and crate responsibilities: [`docs/architecture.md`](docs/architecture.md).
 
-| Crate | Responsabilité |
-|---|---|
-| `engine` | Configuration, commandes, orchestration, scheduler et binaire |
-| `api` | API HTTP Axum, dashboard opérationnel et console scientifique |
-| `store` | Accès PostgreSQL/PostGIS, migrations et repositories |
-| `ingest` | Connecteurs et normalisation des sources |
-| `dataset` | Construction et versioning des datasets scientifiques |
-| `quality` | Audits de qualité et règles de validation |
-| `risk` | Scoring opérationnel v1 et fusion explicable |
-| `fwi` | Canadian Fire Weather Index |
-| `grid` | Maillage H3, emprises et conversions géographiques |
+## Quick start
 
-Le stockage PostgreSQL/PostGIS sépare les données brutes, le staging, les événements incendie, la validation, les datasets ML, les opérations et les tables applicatives. Les migrations SQLx sont additives et appliquées par l'engine au démarrage.
+Requirements: Rust `1.97.1` (pinned by [`rust-toolchain.toml`](rust-toolchain.toml)),
+Docker with Compose, `curl`, and (only when running the engine directly on
+the host, as below, rather than inside the container) `gdal` and `eccodes`
+for decoding ECMWF GRIB2 forecasts — `sudo apt-get install gdal-bin
+libeccodes-tools` on Debian/Ubuntu, `brew install gdal eccodes` on macOS.
+Without them the service still starts and `/health`/`/risk`/FIRMS ingestion
+work, but weather/forecast ingestion silently fails over to an empty
+result — see [`docs/deployment.md`](docs/deployment.md) if you hit this.
 
-Les principales sources prises en charge sont :
+```sh
+git clone <this-repository>
+cd erytheon
+cp .env.example .env
+docker compose up -d
+cargo run -p engine -- run
+```
 
-- NASA FIRMS pour les détections satellitaires ;
-- Météo-France pour les observations, ECMWF IFS Open Data en accès direct pour les prévisions
-  opérationnelles, et Open-Meteo AROME/ECMWF comme repli contrôlé ;
-- BDIFF et Prométhée pour l'historique incendie ;
-- OpenStreetMap, CORINE Land Cover, INSEE et calendriers territoriaux pour les features statiques.
+If `docker compose up -d` fails to bind port 5432 because something else on
+your machine is already listening there, either stop that service or point
+`DATABASE_URL` in `.env` at a different host port mapped in
+`docker-compose.yml`.
 
-Le service expose des surfaces H3 pour les horizons `nowcast`, `+6 h`, `+24 h` et `+48 h`. PostgreSQL reste sur un réseau Docker privé ; Caddy est le seul point d'entrée public du déploiement.
+The service then answers on:
 
-## Modèles
+- `GET http://localhost:8080/health` — service and data-source health;
+- `GET http://localhost:8080/` — operational dashboard;
+- `GET /risk` — GeoJSON H3 risk surfaces;
+- `GET /alerts` — cells above a configured threshold;
+- `GET /risk/cell/{h3}` — explained score for one cell;
+- `WS /stream` — live risk updates.
 
-### v1 opérationnel
+The default profile (`DATA_PROFILE=fixture`) runs entirely on the small,
+versioned fixtures under `testdata/` — no API keys or real datasets
+required. `DATA_PROFILE=production` refuses fixtures, missing static
+layers, and silent ingestion failures; see [`docs/deployment.md`](docs/deployment.md).
 
-v1 demeure l'unique modèle actif et l'unique source des scores servis par l'API opérationnelle. Cette garantie n'a pas été modifiée par les phases scientifiques récentes.
-
-### Candidat v2
-
-Le candidat `gbm_isotonic_v2` a été entraîné, calibré, comparé à v1, empaqueté et enregistré dans la registry. Son statut est `inactive`.
-
-Il n'existe actuellement :
-
-- aucune activation du candidat ;
-- aucun score candidat servi ;
-- aucun shadow scoring ;
-- aucune décision automatique de promotion.
-
-Toute évolution de ce statut exige une phase séparée, des contrôles explicites et un rollback documenté.
-
-## Console scientifique privée
-
-La console `/science` présente en lecture seule :
-
-- progression des phases ;
-- état des sources, imports et pipelines ;
-- qualité BDIFF et catégories géographiques ;
-- features et calendrier ;
-- versions de datasets ;
-- modèles v1 et candidat ;
-- intégrité du système et des migrations.
-
-Ses endpoints sont regroupés sous `/api/science/*`. Ils ne proposent que des lectures ; ils ne déclenchent ni import, ni entraînement, ni scoring, ni migration, ni activation de modèle.
-
-`SCIENCE_CONSOLE_ENABLED` vaut `false` par défaut. Quand il est désactivé, les routes scientifiques ne sont pas montées. Ce flag est un verrou de déploiement, pas un mécanisme d'authentification. Sur le VPS, Caddy protège séparément ces routes.
-
-Pour une prévisualisation locale sans scheduler et sans chargement de modèle :
+### Local demo: scientific console
 
 ```sh
 docker compose up -d
 cargo run -p engine -- preview-science-console --bind 127.0.0.1:8081
 ```
 
-Puis ouvrir <http://127.0.0.1:8081/science>.
+Then open <http://127.0.0.1:8081/science>. This preview mode runs without
+the scheduler and without loading a model. In a normal deployment the
+console is mounted at `/science` only when `SCIENCE_CONSOLE_ENABLED=true`
+(default `false`) — see [`docs/api.md`](docs/api.md).
 
-## Démarrage local
+## API
 
-Prérequis :
+Summary and stability tiers: [`docs/api.md`](docs/api.md). Every route in
+the codebase is a `GET` or `WS` read — there is no write, import,
+training, migration, or model-activation endpoint.
 
-- Rust `1.97.1` — épinglé par `rust-toolchain.toml` ;
-- Docker avec Compose ;
-- `curl`.
+## Models
 
-```sh
-cp .env.example .env
-docker compose up -d
-cargo run -p engine -- run
-```
+| Model | Status | Served |
+|---|---|---|
+| v1 (logistic regression + FWI fusion) | **Active** | Yes — the only model served |
+| `gbm_isotonic_v2` (candidate) | **Inactive** | No |
+| Shadow scoring | Not implemented | N/A |
 
-Le service répond ensuite sur :
+Full detail, including the historical comparison metrics and why the
+candidate remains inactive: [`docs/models.md`](docs/models.md).
 
-- <http://localhost:8080/health> — santé du service et des sources ;
-- <http://localhost:8080/> — dashboard opérationnel ;
-- `GET /risk` — surfaces GeoJSON H3 ;
-- `GET /alerts` — cellules dépassant un seuil ;
-- `GET /risk/cell/{h3}` — explication d'une cellule ;
-- `WS /stream` — mises à jour de risque.
+## Scientific status
 
-Le profil par défaut utilise les fixtures versionnées. `DATA_PROFILE=production` refuse les fichiers de test, les sources statiques manquantes et les échecs silencieux. Les données réelles et les secrets doivent rester sous les chemins ignorés par Git.
+- **v1 is the sole model serving risk scores.** It has not been modified
+  by any of the scientific-foundation work in this repository.
+- **The `gbm_isotonic_v2` candidate is registered `inactive`.** It has
+  been trained, calibrated, and compared against v1 on historical data,
+  but never activated, never served, and never shadow-scored against live
+  data. Promotion is a separate, explicit, documented decision — never an
+  automatic consequence of a good historical metric. See
+  [`GOVERNANCE.md`](GOVERNANCE.md).
+- **Shadow scoring has not started.** Its design exists
+  ([`docs/research/reports/SHADOW_SCORING_DESIGN.md`](docs/research/reports/SHADOW_SCORING_DESIGN.md))
+  but nothing runs it yet.
 
-## Déploiement et versions
+## Limitations
 
-Deux tags distinguent le binaire réellement construit de l'état intégré final :
+- The score is a **relative** risk indicator, not an absolute probability.
+- Historical validation is not the same as live operational validation.
+- Some static territorial features (WUI, roads, population, land cover)
+  are applied across multiple years without a per-year historical
+  snapshot — a known, documented temporal approximation.
+- Training datasets use negative sampling; reported class ratios reflect a
+  sampling design choice, not real-world fire prevalence.
+- NASA FIRMS reports observed thermal anomalies, not predictions.
+- No prospective (forecast-vs-observed) validation system exists yet.
 
-- `v0.4.2-app` pointe sur `849039385a14f95df0a95cca69e5987d3b311478`, révision applicative actuellement déployée ;
-- `v0.4.2` pointe sur `d4730fda09571db491d0611e3308f96d1ee03ebb`, tête intégrée incluant documentation et correctifs de validation.
+Full detail: [`docs/scientific-limitations.md`](docs/scientific-limitations.md).
 
-Les tags existants sont immuables. Un futur redéploiement doit construire une nouvelle révision explicitement validée ; il ne doit pas déplacer `v0.4.2-app` ou `v0.4.2`.
+## Data sources
 
-La procédure de déploiement historique est décrite dans [`deploy/oracle/README.md`](deploy/oracle/README.md). Les détails spécifiques à la console sont dans [`SCIENTIFIC_CONSOLE_DEPLOYMENT_RUNBOOK.md`](SCIENTIFIC_CONSOLE_DEPLOYMENT_RUNBOOK.md).
+NASA FIRMS, Météo-France, ECMWF IFS Open Data (Erytheon's primary,
+credential-free forecast source), BDIFF, Prométhée, OpenStreetMap, CORINE
+Land Cover, and INSEE. Each has its own license, attribution requirements,
+and redistribution restrictions — **the code license does not cover the
+data**. See [`docs/data-sources.md`](docs/data-sources.md) for the full
+per-source breakdown and [`NOTICE.md`](NOTICE.md) for a quick attribution
+reference. Real datasets are not committed to this repository (only small
+development fixtures under `testdata/`).
 
-## Feuille de route
-
-Les fondations de données, les datasets candidats, l'entraînement expérimental, la comparaison v1/candidat, le packaging, l'enregistrement inactif et la console scientifique privée sont terminés ou validés.
-
-La prochaine étape est **Phase 4A.3 — stabilisation** : usage réel de la console, cohérence des chiffres, ergonomie, monitoring, erreurs API et rate limits. L'ordre recommandé à ce stade est ensuite Phase 4B, puis shadow scoring limité P3. Cette séquence pourra être réévaluée à la sortie de 4A.3 ; elle ne vaut ni engagement irréversible ni autorisation implicite de lancer P3.
-
-Voir [`ROADMAP.md`](ROADMAP.md) pour l'état détaillé et les critères de passage.
-
-## Limites scientifiques
-
-- Le score représente un risque relatif, pas une probabilité absolue de départ de feu.
-- FIRMS observe des événements récents ; il ne prédit pas à lui seul les ignitions futures.
-- La qualité dépend de la couverture et de la fraîcheur des sources territoriales.
-- Certaines features statiques présentent une dérive temporelle entre entraînement et production.
-- Le registre de datasets et certains snapshots peuvent être vides en production ; la console doit afficher cet état sans extrapolation.
-- Les performances historiques du candidat ne prouvent pas sa stabilité sur les données courantes.
-- Aucun résultat candidat ne doit être interprété comme opérationnel avant une phase de shadow scoring contrôlée.
+Erytheon can optionally use **Open-Meteo** as a fallback provider when
+ECMWF/Météo-France are unavailable. Its weather data is CC-BY-4.0, but its
+free API service is contractually limited to non-commercial use — users
+are responsible for complying with the terms applicable to their own
+usage and plan; see [`docs/data-sources.md#open-meteo`](docs/data-sources.md#open-meteo).
 
 ## Documentation
 
-- [`ROADMAP.md`](ROADMAP.md) — phases terminées et suite recommandée ;
-- [`PR1_INTEGRATION_COMPLETION_REPORT.md`](PR1_INTEGRATION_COMPLETION_REPORT.md) — clôture de l'intégration v0.4.2 ;
-- [`SCIENTIFIC_CONSOLE_ARCHITECTURE.md`](SCIENTIFIC_CONSOLE_ARCHITECTURE.md) — architecture et garanties read-only ;
-- [`SCIENTIFIC_CONSOLE_USER_GUIDE.md`](SCIENTIFIC_CONSOLE_USER_GUIDE.md) — utilisation de la console ;
-- [`SCIENTIFIC_CONSOLE_DATA_CONTRACTS.md`](SCIENTIFIC_CONSOLE_DATA_CONTRACTS.md) — contrats API ;
-- [`MODEL_CANDIDATE_ARTIFACT.md`](MODEL_CANDIDATE_ARTIFACT.md) — format et intégrité du candidat ;
-- [`V1_CANDIDATE_COMPARISON.md`](V1_CANDIDATE_COMPARISON.md) — comparaison scientifique ;
-- [`MODEL_PROMOTION_PLAN.md`](MODEL_PROMOTION_PLAN.md) — critères de promotion ;
-- [`SHADOW_SCORING_DESIGN.md`](SHADOW_SCORING_DESIGN.md) — conception P3, non implémentée.
+- [`docs/architecture.md`](docs/architecture.md) — system design
+- [`docs/scientific-methodology.md`](docs/scientific-methodology.md) — what is modelled and how
+- [`docs/scientific-limitations.md`](docs/scientific-limitations.md) — honest limits
+- [`docs/models.md`](docs/models.md) — v1 and candidate v2 detail
+- [`docs/data-sources.md`](docs/data-sources.md) — licensing and attribution per source
+- [`docs/reproducibility.md`](docs/reproducibility.md) — reproducing the service and reported metrics
+- [`docs/deployment.md`](docs/deployment.md) — generic production deployment guide
+- [`docs/api.md`](docs/api.md) — endpoint reference and stability tiers
+- [`docs/public-platform.md`](docs/public-platform.md) — vision for a future public site (not implemented)
+- [`docs/research/`](docs/research/) — the full phase-by-phase engineering and research archive
+- [`ROADMAP.md`](ROADMAP.md) — what's done and what's next
+- [`OPEN_SOURCE_READINESS_REPORT.md`](OPEN_SOURCE_READINESS_REPORT.md) — audit of this repository's readiness for public release
 
-## Développement
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Any change touching models,
+labels, datasets, features, scoring, sampling, or calibration needs a
+scientific justification and tests, not just a passing benchmark — see
+[`GOVERNANCE.md`](GOVERNANCE.md).
+
+## Security
+
+See [`SECURITY.md`](SECURITY.md) for how to report a vulnerability. Please
+do not open a public issue containing a secret or a live exploit.
+
+## Development
 
 ```sh
 cargo fmt --all -- --check
@@ -166,4 +214,20 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --locked --no-fail-fast
 ```
 
-Les tests d'intégration nécessitent PostgreSQL/PostGIS. Les fixtures versionnées appartiennent à `testdata/`; les données réelles, sorties et secrets ne doivent jamais être commités.
+Integration tests require PostgreSQL/PostGIS (see
+[`docker-compose.yml`](docker-compose.yml)). Versioned fixtures live under
+`testdata/`; real data, build output, and secrets must never be committed
+(see [`.gitignore`](.gitignore)).
+
+## License
+
+Code is dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),
+at your option — see [`LICENSE`](LICENSE). Data sources are licensed
+separately; see [`docs/data-sources.md`](docs/data-sources.md).
+
+---
+
+*Erytheon is an experimental research project. Its outputs are not
+official wildfire warnings, emergency alerts, or guarantees that a fire
+will or will not occur. Always follow information and instructions issued
+by competent authorities.*
