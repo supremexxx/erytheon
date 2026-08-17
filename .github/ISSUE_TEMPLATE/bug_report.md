@@ -21,7 +21,7 @@ labels: bug
 
 ## Environment
 
-- Erytheon version / commit:
+- FireSift version / commit:
 - Rust version (`rustc --version`):
 - `DATA_PROFILE` (`fixture` or `production`):
 - OS:

@@ -1,11 +1,11 @@
 # Notice
 
-Erytheon's code is dual-licensed MIT OR Apache-2.0 (see [`LICENSE`](LICENSE)).
+FireSift's code is dual-licensed MIT OR Apache-2.0 (see [`LICENSE`](LICENSE)).
 Full source-by-source license, attribution, and redistribution detail is in
 [`docs/data-sources.md`](docs/data-sources.md) — this file is a quick
 reference for what a deployer should credit, not a replacement for it.
 
-If you run Erytheon, or publish anything derived from its output, credit:
+If you run FireSift, or publish anything derived from its output, credit:
 
 - **NASA FIRMS** — satellite fire detections. NASA FIRMS/LANCE.
 - **Météo-France** — weather observations. © Météo-France, Licence Ouverte / Open Licence 2.0.

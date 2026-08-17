@@ -1,6 +1,6 @@
 # License
 
-The Erytheon **source code** is dual-licensed under either of:
+The FireSift **source code** is dual-licensed under either of:
 
 - the MIT License ([LICENSE-MIT](LICENSE-MIT)), or
 - the Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
@@ -14,8 +14,8 @@ without any additional terms or conditions.
 
 ## Data is licensed separately
 
-This license covers Erytheon's **code only**. It does not grant any rights to
-third-party datasets Erytheon reads or references (NASA FIRMS, Météo-France,
+This license covers FireSift's **code only**. It does not grant any rights to
+third-party datasets FireSift reads or references (NASA FIRMS, Météo-France,
 ECMWF, Open-Meteo, BDIFF, Prométhée, OpenStreetMap, CORINE Land Cover, INSEE,
 administrative boundaries, etc.). Each of those sources has its own license
 and attribution terms. See [`docs/data-sources.md`](docs/data-sources.md) for

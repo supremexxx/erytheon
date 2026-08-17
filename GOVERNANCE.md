@@ -1,11 +1,11 @@
 # Governance
 
-Erytheon is currently initiated and maintained by a single primary
+FireSift is currently initiated and maintained by a single primary
 maintainer, with contributions accepted via pull requests. This document
-describes how decisions get made — it is intentionally light. Erytheon
+describes how decisions get made — it is intentionally light. FireSift
 does not need a foundation, a steering committee, or a formal RFC process
 at its current size; it needs a clear, honest rule for the one thing that
-actually matters: **what happens to models and the claims Erytheon makes
+actually matters: **what happens to models and the claims FireSift makes
 about them.**
 
 ## Roles
@@ -41,7 +41,7 @@ updated when it is.
   independent of the serving path** until a maintainer explicitly wires it
   in. Interface and documentation changes must never trigger scoring,
   import, or migration in production as a side effect.
-- **Scientific decisions important enough to change what Erytheon claims**
+- **Scientific decisions important enough to change what FireSift claims**
   (a new model family, a change to what the score represents, a change to
   labeling methodology) should be discussed in an issue before
   implementation, using the scientific-proposal issue template.
