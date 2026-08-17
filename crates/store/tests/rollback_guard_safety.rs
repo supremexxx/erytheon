@@ -719,7 +719,7 @@ async fn rollback_0016_refuses_and_preserves_a_registered_candidate() {
 /// migration's objects still exist.
 #[tokio::test]
 #[allow(clippy::too_many_lines)]
-async fn rollback_0030_to_0018_succeeds_only_in_reverse_order_when_empty() {
+async fn rollback_0031_to_0018_succeeds_only_in_reverse_order_when_empty() {
     dotenvy::dotenv().ok();
     let Ok(admin_url) = std::env::var("DATABASE_URL") else {
         eprintln!("skipping database integration test: DATABASE_URL is not configured");
@@ -740,6 +740,16 @@ async fn rollback_0030_to_0018_succeeds_only_in_reverse_order_when_empty() {
     assert!(
         table_exists(&pool, "observability", "scientific_snapshots").await,
         "out-of-order rollback must preserve 0019's manifest table"
+    );
+
+    let rollback_0031 = run_psql(
+        &temp_url,
+        &migrations_root().join("0031_blue_evidence_requeue_repair.down.sql"),
+    );
+    assert!(
+        rollback_0031.status.success(),
+        "0031 rollback must succeed before 0030: {}",
+        String::from_utf8_lossy(&rollback_0031.stderr)
     );
 
     let rollback_0030 = run_psql(
