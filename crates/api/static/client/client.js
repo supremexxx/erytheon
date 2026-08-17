@@ -148,7 +148,7 @@
       elements.meta.textContent = commune.postal_codes.length
         ? `INSEE ${commune.insee_code} · ${commune.postal_codes.join(", ")}`
         : `INSEE ${commune.insee_code}`;
-      document.title = `ERYTHEON — ${commune.name}`;
+      document.title = `FireSift — ${commune.name}`;
 
       L.geoJSON(commune.boundary, {
         style: { color: "#315342", weight: 2, fill: false },

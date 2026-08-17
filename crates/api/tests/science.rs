@@ -144,7 +144,7 @@ fn science_frontend_stabilizers_are_versioned() {
         "the scientific overview must load and render the audited production map component"
     );
     assert!(
-        DASHBOARD_JS.contains("window.ErytheonOperationalMap")
+        DASHBOARD_JS.contains("window.FireSiftOperationalMap")
             && DASHBOARD_JS.contains("mountOperationalMap")
             && DASHBOARD_JS.contains("destroy:")
             && SCIENCE_JS.contains("destroyOperationalMap()"),
