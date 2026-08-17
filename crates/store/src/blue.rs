@@ -822,7 +822,9 @@ impl Store {
                     'relation_strength',s.relation_strength,
                     'review_horizon',r.review_horizon) ORDER BY s.id)
                  FROM blue.evidence_runs r JOIN blue.evidence_sources s ON s.run_id=r.id
-                 WHERE r.case_id=c.id),'[]'::jsonb) sources
+                 WHERE r.case_id=c.id AND NOT EXISTS (
+                    SELECT 1 FROM blue.evidence_invalidations i WHERE i.run_id=r.id
+                 )),'[]'::jsonb) sources
              FROM blue.evidence_cases c
              JOIN blue.forecast_bulletins b ON b.id=c.bulletin_id
              LEFT JOIN blue.forecast_alerts a24 ON a24.id=c.alert_24h_id
@@ -869,10 +871,14 @@ impl Store {
                 c.verdict,c.confidence,c.observed_event_at,c.completed_at,
                 COALESCE((SELECT COUNT(*) FROM blue.evidence_runs r
                     JOIN blue.evidence_sources s ON s.run_id=r.id
-                    WHERE r.case_id=c.id AND r.review_horizon='hours_24'),0)::bigint sources_24h,
+                    WHERE r.case_id=c.id AND r.review_horizon='hours_24'
+                      AND NOT EXISTS (SELECT 1 FROM blue.evidence_invalidations i
+                          WHERE i.run_id=r.id)),0)::bigint sources_24h,
                 COALESCE((SELECT COUNT(*) FROM blue.evidence_runs r
                     JOIN blue.evidence_sources s ON s.run_id=r.id
-                    WHERE r.case_id=c.id AND r.review_horizon='hours_48'),0)::bigint sources_48h
+                    WHERE r.case_id=c.id AND r.review_horizon='hours_48'
+                      AND NOT EXISTS (SELECT 1 FROM blue.evidence_invalidations i
+                          WHERE i.run_id=r.id)),0)::bigint sources_48h
              FROM blue.evidence_cases c
              JOIN blue.forecast_bulletins b ON b.id=c.bulletin_id AND b.status='published'
              LEFT JOIN blue.forecast_alerts a24 ON a24.id=c.alert_24h_id
