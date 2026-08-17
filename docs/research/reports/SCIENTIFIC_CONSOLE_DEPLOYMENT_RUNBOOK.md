@@ -8,7 +8,7 @@ ne contient aucun secret.
 URL :
 
 ```text
-https://pyrorisk.187.77.161.204.sslip.io/science
+https://pyrorisk.<VPS_PUBLIC_IP>.sslip.io/science
 ```
 
 Les credentials sont gérés hors Git sur le VPS :
@@ -66,9 +66,9 @@ Depuis un poste externe, sans credentials :
 
 ```bash
 curl -o /dev/null -sS -w '%{http_code}\n' \
-  https://pyrorisk.187.77.161.204.sslip.io/science
+  https://pyrorisk.<VPS_PUBLIC_IP>.sslip.io/science
 curl -o /dev/null -sS -w '%{http_code}\n' \
-  https://pyrorisk.187.77.161.204.sslip.io/api/science/overview
+  https://pyrorisk.<VPS_PUBLIC_IP>.sslip.io/api/science/overview
 ```
 
 Les deux réponses attendues sont `401`.
@@ -198,11 +198,11 @@ docker compose --env-file .env -f compose.yml \
 
 ```bash
 docker compose --env-file .env -f compose.yml ps
-curl -fsS https://pyrorisk.187.77.161.204.sslip.io/health
+curl -fsS https://pyrorisk.<VPS_PUBLIC_IP>.sslip.io/health
 curl -o /dev/null -sS -w '%{http_code}\n' \
-  https://pyrorisk.187.77.161.204.sslip.io/
+  https://pyrorisk.<VPS_PUBLIC_IP>.sslip.io/
 curl -o /dev/null -sS -w '%{http_code}\n' \
-  https://pyrorisk.187.77.161.204.sslip.io/science
+  https://pyrorisk.<VPS_PUBLIC_IP>.sslip.io/science
 ```
 
 Vérifier également dans PostgreSQL :

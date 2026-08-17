@@ -1,10 +1,84 @@
 # Changelog
 
-All notable changes to PyroRisk are documented in this file.
+All notable changes to Erytheon are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-17 - First Open Research Release
+
 ### Added
+
+- Copyright holder set in `LICENSE-MIT`/`LICENSE-APACHE`:
+  `Copyright (c) 2026 William Ducamp`. Dual license (MIT OR Apache-2.0)
+  unchanged.
+- `NOTICE.md`, a quick-reference attribution list for all data sources
+  (full detail stays in `docs/data-sources.md`).
+- `docs/release-notes-v0.5.0.md` — release notes published as this
+  `v0.5.0` GitHub Release.
+- `LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE` matching the `MIT OR Apache-2.0`
+  license already declared in `Cargo.toml`.
+- `docs/data-sources.md` documenting per-source data licensing, attribution,
+  and redistribution status (NASA FIRMS, Météo-France, ECMWF, Open-Meteo,
+  BDIFF, Prométhée, OpenStreetMap, CORINE Land Cover, INSEE).
+- `docs/architecture.md`, `docs/api.md`, `docs/deployment.md`,
+  `docs/models.md`, `docs/reproducibility.md`,
+  `docs/scientific-methodology.md`, `docs/scientific-limitations.md`,
+  `docs/public-platform.md` (vision document, not implemented).
+- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `GOVERNANCE.md`.
+- GitHub issue templates (bug report, feature request, data source
+  proposal, scientific/model proposal) and a pull request template under
+  `.github/`.
+- `.github/dependabot.yml` for Cargo, GitHub Actions, and Docker, on a
+  weekly cadence with grouped minor/patch updates.
+- `OPEN_SOURCE_READINESS_REPORT.md` — full audit ahead of public release.
+- An "Open-source track" section in `ROADMAP.md` (Phases A–F), separate
+  from the existing scientific/product roadmap.
+- English-language root `README.md` rewritten for an open-source research
+  audience, replacing the previous French-language version (content
+  preserved and expanded, not just translated — see the readiness report
+  for what changed).
+
+### Changed
+
+- Reorganized ~70 root-level phase/report Markdown documents into
+  `docs/research/phases/` and `docs/research/reports/` (via `git mv`, to
+  preserve file history), with a `docs/research/README.md` index. Internal
+  cross-document links were updated to match.
+- `docs/data-sources.md` license statuses re-verified against each
+  provider's current live terms (not from memory): most sources moved
+  from an unverified/uncertain status to `CLEAR`, with BDIFF and
+  Open-Meteo given precise, conditional wording instead of a blanket
+  status. See `OPEN_SOURCE_READINESS_REPORT.md`.
+- README Quick Start and `CONTRIBUTING.md` now document a `gdal`/`eccodes`
+  host prerequisite for the ECMWF direct-weather path, and a note on
+  resolving a port-5432 conflict — both found by actually running the
+  Quick Start end-to-end rather than only reading it.
+- `.github/workflows/ci.yml` now declares an explicit minimal
+  `permissions: contents: read` (defense-in-depth; no functional change).
+- Replaced `testdata/promethee_aude.csv`'s single row with clearly
+  synthetic data (fictional municipality, `SYNTH-`-prefixed ID), closing
+  an earlier "unconfirmed provenance" question rather than leaving it
+  open. No test asserted the row's specific values, so this is
+  behavior-neutral; `crates/engine`'s static-layer tests were re-run to
+  confirm.
+- Reclassified administrative boundaries and territorial calendars in
+  `docs/data-sources.md` from a blanket `REQUIRES LEGAL / LICENSE REVIEW`
+  to precise statuses (`NOT BUNDLED / USER PROVIDED` for boundaries;
+  `CLEAR` for the bundled calendar fixture, `NOT BUNDLED` for a real
+  production calendar) after confirming what actually ships.
+
+### Security
+
+- Redacted a real production VPS public IP address and system hostname
+  that were committed in three deployment/runbook documents, replacing
+  them with placeholders. See `OPEN_SOURCE_READINESS_REPORT.md` for detail
+  and for the full security audit (no secrets or credentials were found in
+  the current tree or Git history via `gitleaks`). The same IP/hostname
+  remain in Git history across most tags and branches — this is now a
+  recorded, explicit accept-risk decision by the repository owner
+  (William Ducamp), not an open question; see the readiness
+  report's "Git history security" section for the exact scope and the
+  commands to remove them if the maintainer chooses to.
 
 - Direct, credential-free ECMWF IFS open-data weather acquisition with local decoded-grid caching
   and controlled Open-Meteo fallback.

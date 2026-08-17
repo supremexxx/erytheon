@@ -1,0 +1,24 @@
+# License
+
+The Erytheon **source code** is dual-licensed under either of:
+
+- the MIT License ([LICENSE-MIT](LICENSE-MIT)), or
+- the Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+
+at your option. This matches the `license` field declared in the workspace
+[`Cargo.toml`](Cargo.toml) (`MIT OR Apache-2.0`).
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you shall be dual-licensed as above,
+without any additional terms or conditions.
+
+## Data is licensed separately
+
+This license covers Erytheon's **code only**. It does not grant any rights to
+third-party datasets Erytheon reads or references (NASA FIRMS, Météo-France,
+ECMWF, Open-Meteo, BDIFF, Prométhée, OpenStreetMap, CORINE Land Cover, INSEE,
+administrative boundaries, etc.). Each of those sources has its own license
+and attribution terms. See [`docs/data-sources.md`](docs/data-sources.md) for
+a per-source breakdown, including which sources are and are not redistributed
+in this repository, and [`NOTICE.md`](NOTICE.md) for a quick attribution
+reference.
