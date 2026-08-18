@@ -22,7 +22,7 @@ metrics — not just run the service.
 
 ```sh
 git clone <this-repository>
-cd erytheon
+cd firesift
 cp .env.example .env
 docker compose up -d
 cargo run -p engine -- run
