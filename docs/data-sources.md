@@ -1,7 +1,7 @@
 # Data sources
 
 FireSift's **code** is dual-licensed MIT OR Apache-2.0 (see
-[`LICENSE`](../LICENSE)). That license does not extend to the third-party
+[`COPYRIGHT`](../COPYRIGHT)). That license does not extend to the third-party
 data FireSift reads, computes over, or displays. Each source below has its
 own license and its own attribution and redistribution rules, and they are
 not all the same. This document exists so that a contributor, a downstream

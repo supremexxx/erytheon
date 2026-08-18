@@ -219,7 +219,7 @@ Integration tests require PostgreSQL/PostGIS (see
 ## License
 
 Code is dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),
-at your option — see [`LICENSE`](LICENSE). Data sources are licensed
+at your option — see [`COPYRIGHT`](COPYRIGHT). Data sources are licensed
 separately; see [`docs/data-sources.md`](docs/data-sources.md).
 
 ---

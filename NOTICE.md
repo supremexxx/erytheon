@@ -1,6 +1,6 @@
 # Notice
 
-FireSift's code is dual-licensed MIT OR Apache-2.0 (see [`LICENSE`](LICENSE)).
+FireSift's code is dual-licensed MIT OR Apache-2.0 (see [`COPYRIGHT`](COPYRIGHT)).
 Full source-by-source license, attribution, and redistribution detail is in
 [`docs/data-sources.md`](docs/data-sources.md) — this file is a quick
 reference for what a deployer should credit, not a replacement for it.
