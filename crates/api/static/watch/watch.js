@@ -33,16 +33,18 @@
     BUI: "Quantité totale de combustible disponible pour brûler.",
     FWI: "Indice global de danger d'incendie combinant propagation et combustible disponible.",
   });
+  // Only sources actually polled on a recurring cycle in production
+  // (crates/engine/src/scheduler.rs: poll_firms, poll_forecast's primary
+  // leg). Everything else in /sources is either a one-time static-data
+  // load (BDIFF, Calendrier, Corine, INSEE, OSM, Prométhée -- loaded once
+  // at deploy time, never refreshed) or a weather fallback that only
+  // fires when the primary source fails (AROME/ARPEGE, open_meteo
+  // ECMWF) -- showing those next to live feeds made the map look stale
+  // when it wasn't.
+  const LIVE_SOURCE_IDS = ["ecmwf_ifs025_direct", "firms"];
   const SOURCE_NAMES = Object.freeze({
-    bdiff: "BDIFF",
-    calendar: "Calendrier",
-    corine: "Corine Land Cover",
-    firms: "NASA FIRMS",
-    insee: "INSEE Filosofi",
-    meteofrance_synop: "Météo-France SYNOP",
-    open_meteo_arome: "AROME / ARPEGE",
-    osm: "OpenStreetMap",
-    promethee: "Prométhée",
+    ecmwf_ifs025_direct: "Prévisions météo (ECMWF)",
+    firms: "Détections satellite (NASA FIRMS)",
   });
   const GUIDANCE = Object.freeze({
     low: "Feu possible mais peu probable.",
@@ -133,7 +135,34 @@
       riskController: null,
       pendingFocus: null,
       degraded: false,
+      lastComputedAt: null,
     };
+
+    // BLUE's daily bulletin and this map read the exact same
+    // `risk_scores` rows (BLUE snapshots them once a day; this map
+    // shows whichever batch most recently finished computing) -- so
+    // "is this degraded" should be answered by the age of the data
+    // actually on screen, not by scanning every row /sources returns.
+    // That list carries source ids left over from earlier pipeline
+    // iterations that no longer feed live scoring, and flagging on
+    // those made the map claim to be stale when the numbers it showed
+    // were current.
+    const STALE_AFTER_MINUTES = 40; // generous margin over the ~15 min recompute cadence
+
+    function recordFreshness(computedAtIso) {
+      if (!computedAtIso) return;
+      state.lastComputedAt = computedAtIso;
+      elements.metaTime.textContent = new Date(computedAtIso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+      const ageMinutes = (Date.now() - new Date(computedAtIso).getTime()) / 60000;
+      const stale = ageMinutes > STALE_AFTER_MINUTES;
+      state.degraded = stale;
+      elements.sourcesBtn.classList.toggle("is-degraded", stale);
+      elements.statusBanner.hidden = !stale;
+      if (stale) {
+        elements.statusBanner.querySelector("span").innerHTML =
+          `<strong>Les données affichées ne sont plus toutes récentes.</strong> Dernier calcul il y a plus de ${STALE_AFTER_MINUTES} minutes.`;
+      }
+    }
 
     // ---------- theme ----------
     function systemPrefersDark() {
@@ -271,11 +300,11 @@
         state.riskLayer.remove();
         state.selectedLayer = null;
         const group = L.layerGroup();
-        let latestValidAt = null;
+        let latestComputedAt = null;
         for (const alert of alerts) {
           const layer = L.circleMarker([alert.latitude, alert.longitude], alertMarkerStyle(alert.score));
           layer.feature = { properties: alert };
-          if (alert.valid_at && (!latestValidAt || alert.valid_at > latestValidAt)) latestValidAt = alert.valid_at;
+          if (alert.computed_at && (!latestComputedAt || alert.computed_at > latestComputedAt)) latestComputedAt = alert.computed_at;
           layer.on("click", () => selectCell(alert.h3, layer, { source: "map" }));
           group.addLayer(layer);
         }
@@ -285,9 +314,7 @@
         // that more zones exist than are shown.
         elements.truncated.hidden = alerts.length < MAX_ALERTS;
         setLegendMode(`Vue d'ensemble · zones ≥ ${Math.round(OVERVIEW_ALERT_THRESHOLD * 100)}/100 — zoomez pour la grille complète`);
-        if (latestValidAt) {
-          elements.metaTime.textContent = new Date(latestValidAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-        }
+        recordFreshness(latestComputedAt);
         if (state.pendingFocus) {
           focusNearestFeature(alerts);
         }
@@ -331,21 +358,19 @@
         if (requestId !== state.riskRequestId) return;
         state.riskLayer.remove();
         state.selectedLayer = null;
-        let latestValidAt = null;
+        let latestComputedAt = null;
         state.riskLayer = L.geoJSON(collection, {
           style: styleForFeature,
           pointToLayer: (feature, latlng) => L.circleMarker(latlng, styleForFeature(feature)),
           onEachFeature: (feature, layer) => {
-            const validAt = feature.properties?.valid_at;
-            if (validAt && (!latestValidAt || validAt > latestValidAt)) latestValidAt = validAt;
+            const computedAt = feature.properties?.computed_at;
+            if (computedAt && (!latestComputedAt || computedAt > latestComputedAt)) latestComputedAt = computedAt;
             layer.on("click", () => selectCell(feature.properties.h3, layer, { source: "map" }));
           },
         }).addTo(map);
         elements.truncated.hidden = !collection.truncated;
         setLegendMode("Grille complète · toutes les cellules de la vue");
-        if (latestValidAt) {
-          elements.metaTime.textContent = new Date(latestValidAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-        }
+        recordFreshness(latestComputedAt);
         if (state.pendingFocus) {
           focusNearestFeature(collection.features || []);
         }
@@ -615,12 +640,17 @@
     }
 
     // ---------- sources / freshness ----------
+    // Informational only -- the freshness banner and "Mis à jour" time
+    // are driven by recordFreshness() (the actual age of the data on
+    // screen), not by this list. /sources includes ids left over from
+    // earlier pipeline iterations that no longer feed live scoring;
+    // treating every one of them as load-bearing made the map claim to
+    // be stale on days it demonstrably wasn't (BLUE's bulletin and this
+    // map's cells come from the same risk_scores rows).
     async function loadSources() {
       try {
-        const sources = await fetchJson("/sources");
-        state.degraded = sources.some((source) => Boolean(source.recent_error));
-        elements.sourcesBtn.classList.toggle("is-degraded", state.degraded);
-        elements.statusBanner.hidden = !state.degraded;
+        const sources = (await fetchJson("/sources"))
+          .filter((source) => LIVE_SOURCE_IDS.includes(source.id));
         elements.sourcesList.innerHTML = sources.map((source) => {
           const minutes = relativeMinutes(source.last_success);
           const freshness = source.recent_error
