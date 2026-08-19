@@ -136,6 +136,14 @@ Production mode rejects missing files and fixture paths rather than silently pub
 
 Install the daily PostgreSQL backup timer. Dumps are retained for seven days in `/opt/pyrorisk/backups`.
 
+The deployment account must own the environment file because both the deployment script and the
+backup service run as `pyrorisk`. Keep it private to that account:
+
+```sh
+sudo chown pyrorisk:pyrorisk /opt/pyrorisk/deploy/oracle/.env
+sudo chmod 600 /opt/pyrorisk/deploy/oracle/.env
+```
+
 `backup-local.sh` deliberately reads only `POSTGRES_DB` and `POSTGRES_USER` from `.env`; it does not source the file as shell code. This allows ordinary configuration values to contain spaces or accented characters without executing them.
 
 For each run, the script:

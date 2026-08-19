@@ -58,6 +58,21 @@ official alert.
 - An experimental, non-active `gbm_isotonic_v2` candidate model, trained
   and evaluated but never served — see [Scientific status](#scientific-status).
 
+## Interfaces
+
+Five HTTP surfaces, one always on and four behind a deployment flag that
+is **not** authentication — see
+[`docs/architecture.md#api-surfaces`](docs/architecture.md#api-surfaces)
+for the full picture, including expected reverse-proxy protection:
+
+| Interface | Flag | Status |
+|---|---|---|
+| Operational dashboard | always on | Public |
+| Scientific console (`/science`) | `SCIENCE_CONSOLE_ENABLED` | Experimental, disabled by default |
+| Territorial/client console (`/client`) | `CLIENT_CONSOLE_ENABLED` | Experimental, disabled by default |
+| BLUE forecast-evidence center (`/blue`) | `BLUE_CENTER_ENABLED` | Experimental, partial foundation — see [Scientific status](#scientific-status) |
+| Watch public map (`/watch`) | `WATCH_CONSOLE_ENABLED` | Experimental, present in `Unreleased`, disabled by default |
+
 ## Architecture
 
 Nine crates in one Cargo workspace (`engine`, `api`, `store`, `ingest`,
@@ -144,6 +159,12 @@ candidate remains inactive: [`docs/models.md`](docs/models.md).
 - **Shadow scoring has not started.** Its design exists
   ([`docs/research/reports/SHADOW_SCORING_DESIGN.md`](docs/research/reports/SHADOW_SCORING_DESIGN.md))
   but nothing runs it yet.
+- **BLUE is a partial prospective-validation foundation, not a complete
+  system.** It archives immutable `+24h`/`+48h` forecast evidence and
+  supports terrain/community-reported confirmations, but reverse
+  matching for recall/specificity and a published aggregate track record
+  do not exist yet — see
+  [`docs/architecture.md#blue-forecast-evidence-center`](docs/architecture.md#blue-forecast-evidence-center).
 
 ## Limitations
 
@@ -155,7 +176,8 @@ candidate remains inactive: [`docs/models.md`](docs/models.md).
 - Training datasets use negative sampling; reported class ratios reflect a
   sampling design choice, not real-world fire prevalence.
 - NASA FIRMS reports observed thermal anomalies, not predictions.
-- No prospective (forecast-vs-observed) validation system exists yet.
+- Prospective (forecast-vs-observed) validation is only partially
+  implemented (BLUE); no published aggregate track record exists yet.
 
 Full detail: [`docs/scientific-limitations.md`](docs/scientific-limitations.md).
 
@@ -186,6 +208,7 @@ usage and plan; see [`docs/data-sources.md#open-meteo`](docs/data-sources.md#ope
 - [`docs/reproducibility.md`](docs/reproducibility.md) — reproducing the service and reported metrics
 - [`docs/deployment.md`](docs/deployment.md) — generic production deployment guide
 - [`docs/api.md`](docs/api.md) — endpoint reference and stability tiers
+- [`docs/project-identity.md`](docs/project-identity.md) — the FireSift/Erytheon/PyroRisk naming, and how Cargo/tag/model/dataset versions relate
 - [`docs/public-platform.md`](docs/public-platform.md) — vision for a future public site (not implemented)
 - [`docs/research/`](docs/research/) — the full phase-by-phase engineering and research archive
 - [`ROADMAP.md`](ROADMAP.md) — what's done and what's next

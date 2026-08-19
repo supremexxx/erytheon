@@ -38,6 +38,11 @@ const DEFAULT_SCIENCE_CONSOLE_ENABLED: &str = "false";
 /// `false` for the same reason as `SCIENCE_CONSOLE_ENABLED`: this is a
 /// deployment gate for an early prototype, not access control.
 const DEFAULT_CLIENT_CONSOLE_ENABLED: &str = "false";
+/// The public wildfire-risk map's routes (`/watch`, `/api/watch/*`) are
+/// only mounted when this is `true`. Defaults to `false` for the same
+/// reason as `CLIENT_CONSOLE_ENABLED`: a deployment gate, not access
+/// control.
+const DEFAULT_WATCH_CONSOLE_ENABLED: &str = "false";
 const DEFAULT_BLUE_CENTER_ENABLED: &str = "false";
 const DEFAULT_BLUE_AI_EVIDENCE_ENABLED: &str = "false";
 const DEFAULT_BLUE_FEUX_DE_FORET_ENABLED: &str = "false";
@@ -71,6 +76,7 @@ pub struct Config {
     pub api_bind: SocketAddr,
     pub science_console_enabled: bool,
     pub client_console_enabled: bool,
+    pub watch_console_enabled: bool,
     pub blue_center_enabled: bool,
     pub blue_ai_evidence_enabled: bool,
     pub blue_feux_de_foret_enabled: bool,
@@ -143,6 +149,10 @@ impl Config {
             client_console_enabled: parse_env(
                 "CLIENT_CONSOLE_ENABLED",
                 DEFAULT_CLIENT_CONSOLE_ENABLED,
+            )?,
+            watch_console_enabled: parse_env(
+                "WATCH_CONSOLE_ENABLED",
+                DEFAULT_WATCH_CONSOLE_ENABLED,
             )?,
             blue_center_enabled: parse_env("BLUE_CENTER_ENABLED", DEFAULT_BLUE_CENTER_ENABLED)?,
             blue_ai_evidence_enabled: parse_env(

@@ -4,6 +4,95 @@ All notable changes to FireSift are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **BLUE forecast-evidence center** (`/blue`, `/api/blue/*`, gated
+  behind `BLUE_CENTER_ENABLED`, default `false`): immutable `+24h`/`+48h`
+  forecast-evidence archiving, a statistical bulletin view, insurer
+  evidence reports, and a ground-truth feedback loop comparing forecasts
+  against observed outcomes. An optional AI-assisted evidence reviewer
+  (`BLUE_AI_EVIDENCE_ENABLED`, requires `OPENAI_API_KEY`;
+  `BLUE_FEUX_DE_FORET_ENABLED` narrows its scope) shows interim review
+  responses and is now configured to use `gpt-4o-mini` by default.
+  Evidence selection was hardened to ground deterministically, preserve
+  existing selections across reruns, and resume invalidated evidence
+  with a fresh attempt instead of silently stalling.
+- **Community/terrain-reported BLUE evidence**: migration
+  `0032_blue_community_evidence.sql` adds `community_reported`,
+  `press_confirmed`, and `authority_confirmed` evidence levels, plus a
+  dedicated `blue.ground_truth_rejections` table so a community report
+  that turns out to be a false alarm is archived separately and can
+  never itself create a positive ground-truth match.
+- **FireSift Watch** (`/watch`, `/api/watch/*`, gated behind
+  `WATCH_CONSOLE_ENABLED`, default `false`): an experimental public map
+  console reusing the existing `/risk`, `/risk/cell/{h3}`, `/sources`,
+  and `/config` routes, plus commune name search and bbox lookup. Not
+  yet part of a tagged release.
+- Deployment provenance hardening for `deploy/oracle/`:
+  `deploy-code.sh` now refuses to deploy tracked, uncommitted changes or
+  untracked build inputs (`Cargo.toml`, `Cargo.lock`, `Dockerfile`,
+  `crates`, `migrations`, `testdata`), and captures the deployed Git
+  revision and built image digest into the remote `.env` for
+  after-the-fact verification.
+- `docs/project-identity.md`, explaining the FireSift/Erytheon/PyroRisk
+  naming (which identifiers persist where, and why) and how the Cargo
+  workspace version, Git tags, model versions, dataset versions, and
+  migration numbers relate to each other.
+
+### Changed
+
+- Public branding fully renamed from Erytheon to FireSift across the
+  dashboard, scientific console, and client console UI copy, crate doc
+  comments, and OCI build-time labels — completing the rename begun in
+  `v0.5.0`'s repository/documentation-level changes.
+- `.github/workflows/container.yml` dual-publishes container images to
+  both `ghcr.io/supremexxx/erytheon` and `ghcr.io/supremexxx/firesift`
+  during the transition, so deployments still pinned to the legacy image
+  name keep working; the legacy line is meant to be dropped once nothing
+  depends on it.
+- `docs/scientific-limitations.md` updated to reflect BLUE as a partial,
+  not absent, prospective-validation foundation.
+- `docs/architecture.md`, `docs/api.md`, `ROADMAP.md`, and `README.md`
+  updated to describe all 5 HTTP surfaces (operational core, scientific,
+  territorial/client, BLUE, Watch) instead of 3, correct a stale
+  `v0.4.x` reference, and close Phase 4A.3 for its historical scope
+  (scientific console only) while opening a new transverse-stabilization
+  phase for Client/BLUE/Watch ahead of Phase 4B and P3.
+- `PR1_INTEGRATION_REVIEW_REPORT.md` archived to
+  `docs/research/reports/` with a header note clarifying its 2026-07-28
+  `BLOCKED` verdict describes a since-merged PR at the time, not the
+  current state of `main`.
+
+### Fixed
+
+- GitHub license detection, by renaming `LICENSE` to `COPYRIGHT` (GitHub
+  was misidentifying the project's dual-license setup from the old
+  filename).
+- Interpolated forecast humidity is now clamped to a physically valid
+  range (`crates/engine/src/forecast.rs`).
+- Cargo cache mounts in the container build now scope per target
+  architecture, fixing a cross-arch cache race.
+- Rollback-guard test coverage restored across the full `0009`–`0032`
+  migration chain.
+- Embedded migrations are now correctly invalidated and re-embedded on
+  change (`crates/store/build.rs`), instead of potentially serving a
+  stale cached build.
+- Watch's freshness indicator now uses `computed_at` (the age of the
+  risk data actually on screen) instead of `valid_at`, and its "live
+  sources" list is restricted to `firms` and `ecmwf_ifs025_direct` — the
+  only sources actually polled on a recurring cycle — instead of
+  including one-time static loads and unused fallback sources, which
+  made the map read as stale when it wasn't.
+
+### Security
+
+- `deploy-code.sh` build-arg names (`ERYTHEON_GIT_COMMIT`,
+  `ERYTHEON_SCIENCE_CONSOLE`) updated to match the Dockerfile's current
+  `FIRESIFT_GIT_COMMIT`/`FIRESIFT_SCIENCE_CONSOLE` ARG names — the
+  Erytheon-to-FireSift rename had silently made the original build-args
+  no-ops, so deployed images stopped actually receiving their intended
+  git-revision and science-console build-time labels.
+
 ## [0.5.0] - 2026-08-17 - First Open Research Release
 
 ### Added

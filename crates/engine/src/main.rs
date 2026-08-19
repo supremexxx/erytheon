@@ -1407,6 +1407,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
         .with_operational_area(config.aoi_bbox, territory_label)
         .with_science_console_enabled(config.science_console_enabled)
         .with_client_console_enabled(config.client_console_enabled)
+        .with_watch_console_enabled(config.watch_console_enabled)
         .with_blue_center_enabled(config.blue_center_enabled);
     if let Some(territory) = &territory {
         let cells = territory

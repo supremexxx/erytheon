@@ -1,6 +1,6 @@
 # FireSift — Roadmap
 
-État au 29 juillet 2026.
+État au 20 août 2026.
 
 ## Principes de progression
 
@@ -8,9 +8,19 @@
 - Le candidat reste inactif ; aucune phase documentaire ne peut changer ce statut.
 - Chaque évolution de modèle doit être réversible, mesurée et indépendante du service v1.
 - Les phases d'interface et de documentation ne doivent déclencher ni scoring, ni import, ni migration en production.
-- Les tags publiés `v0.4.2-app` et `v0.4.2` ne doivent pas être déplacés.
+- Les tags publiés (`v0.4.2`, `v0.4.2-app`, …, `v0.5.0`) ne doivent pas être déplacés.
+- Un flag de déploiement (`*_CONSOLE_ENABLED`, `BLUE_CENTER_ENABLED`, …) n'est **jamais** un mécanisme d'authentification — voir [`docs/architecture.md#api-surfaces`](docs/architecture.md#api-surfaces).
 
-La séquence **4A.3 → 4B → P3** est la recommandation actuelle. Elle pourra être réévaluée à partir des observations de 4A.3 ; cet ordre n'est pas une obligation irréversible et ne remplace pas les validations propres à chaque phase.
+### Légende des statuts utilisés ci-dessous
+
+- **Intégré et publié** — fusionné sur `main` et couvert par une release taguée.
+- **Présent dans `Unreleased`** — fusionné/rejoué sur la branche de travail courante, pas encore dans une release taguée ; voir `CHANGELOG.md`.
+- **Expérimental** — code réel et fonctionnel, gardé derrière un flag désactivé par défaut, sans garantie de stabilité de contrat.
+- **Partiellement implémenté** — une fondation réelle existe, le système complet annoncé par le nom de la phase n'existe pas encore.
+- **Non commencé** — aucune implémentation.
+- **Hors périmètre** — explicitement exclu de la trajectoire actuelle.
+
+La séquence **stabilisation transverse → 4B → P3** est la recommandation actuelle (voir la nouvelle étape ci-dessous). Elle pourra être réévaluée à partir des observations de chaque étape ; cet ordre n'est pas une obligation irréversible et ne remplace pas les validations propres à chaque phase.
 
 ## Terminé et intégré
 
@@ -63,11 +73,17 @@ Les anciennes appellations « phases 0–9C » décrivent ce socle historique. E
 - Déploiement VPS derrière une protection Caddy.
 - Intégration GitHub v0.4.2, CI stricte et tags séparant application et état intégré.
 
-## Prochaine phase — 4A.3 Stabilisation
+### Phase 4A.3 — Stabilisation de la console scientifique (close pour son périmètre historique)
 
-Phase courte, limitée à l'observation et à la correction des défauts réels.
+**Statut : intégré et publié, close pour son périmètre historique.** Le
+travail a été audité et déployé le 28 juillet 2026
+(`docs/research/phases/PHASE4A3_STABILIZATION_REPORT.md`, commit
+`36027bfea23...`, fusionné sur `main`). Périmètre historique : uniquement
+la console scientifique privée (`/science`, `/api/science/*`) — la
+console territoriale/Client, BLUE et Watch n'existaient pas encore au
+moment de cet audit et **n'en font pas partie**.
 
-Objectifs :
+Objectifs d'origine :
 
 - utiliser la console sur desktop et mobile ;
 - vérifier la cohérence entre SQL, API et UI ;
@@ -77,7 +93,7 @@ Objectifs :
 - surveiller les erreurs de scheduler et les rate limits Open-Meteo ;
 - consolider le runbook et le monitoring.
 
-Hors périmètre :
+Hors périmètre (toujours vrai) :
 
 - nouveau modèle ;
 - modification du scoring v1 ;
@@ -86,17 +102,63 @@ Hors périmètre :
 - migration de données non indispensable ;
 - visualisation scientifique majeure.
 
-Critères de sortie :
+**Critères de sortie — 4 sur 5 explicitement démontrés par le rapport du
+28 juillet 2026 :**
 
-- aucune incohérence connue entre chiffres affichés et sources ;
-- erreurs API observables et documentées ;
-- parcours principaux utilisables sur mobile et desktop ;
-- limites scientifiques visibles ;
-- procédures d'exploitation vérifiées.
+- ✅ aucune incohérence connue entre chiffres affichés et sources (15
+  faits UI/API/SQL vérifiés, tous `MATCH`) ;
+- ✅ erreurs API observables et documentées (rate-limiting Open-Meteo
+  classé et documenté) ;
+- ✅ parcours principaux utilisables sur mobile et desktop (32
+  vérifications Chromium réel, 4 largeurs d'écran) ;
+- ⚠️ **limites scientifiques visibles — non explicitement vérifié par ce
+  rapport.** Aucune section du document n'audite spécifiquement
+  l'affichage des limites scientifiques dans l'UI ; ce point reste à
+  contrôler séparément s'il devient bloquant pour une décision future.
+- ✅ procédures d'exploitation vérifiées (déploiement contrôlé, rollback
+  configuré et testé, sauvegarde vérifiée avant déploiement).
+
+Cette phase est déclarée close pour ce périmètre précis. Elle ne
+s'étend pas rétroactivement à la console territoriale/Client, à BLUE ou
+à Watch — ces trois surfaces sont apparues après cet audit et doivent
+être stabilisées séparément (voir l'étape suivante).
+
+## Stabilisation transverse des surfaces récentes (nouvelle étape, non commencée)
+
+**Statut : non commencé.** À ouvrir avant tout élargissement important de
+Watch, avant la Phase 4B, avant P3, et avant toute présentation de BLUE
+comme un système complet de validation prospective. Couvre les trois
+surfaces apparues après l'audit 4A.3 : la console territoriale/Client,
+BLUE, et Watch.
+
+Périmètre minimal :
+
+- Client, BLUE et Watch utilisés sur desktop et mobile ;
+- cohérence des contrats SQL/API/UI pour ces trois surfaces (même
+  méthode que l'audit 4A.3 : comparer les chiffres affichés aux valeurs
+  SQL sous-jacentes) ;
+- états vides et erreurs API correctement gérés et documentés ;
+- visibilité effective des limites scientifiques dans chaque surface
+  (le critère non vérifié par l'audit 4A.3, à couvrir ici explicitement
+  pour ces trois surfaces au minimum) ;
+- performance des endpoints (`/api/blue/*`, `/api/watch/*`,
+  `/api/client/*`) ;
+- fraîcheur des données affichées (`computed_at` vs `valid_at`, cohérent
+  avec le correctif déjà appliqué à Watch) ;
+- protection par reverse proxy documentée pour chaque surface activée
+  publiquement (rappel : le flag d'activation n'est pas une
+  authentification) ;
+- observabilité minimale (logs, erreurs de scheduler pour BLUE).
+
+Hors périmètre : nouveau modèle, modification du scoring v1, activation
+du candidat, shadow scoring, extension fonctionnelle majeure de BLUE ou
+Watch au-delà des corrections nécessaires à la stabilisation elle-même.
 
 ## Phase 4B — visualisations scientifiques
 
-À ouvrir après stabilisation de 4A.3.
+**Statut : non commencé.** À ouvrir après la stabilisation transverse
+ci-dessus (qui remplace et étend l'ancienne dépendance directe à 4A.3
+seule).
 
 Périmètre envisagé :
 
@@ -112,7 +174,8 @@ Cette phase reste read-only et ne modifie aucun statut de modèle.
 
 ## P3 — shadow scoring limité
 
-À ouvrir seulement après stabilisation de la console et validation du protocole.
+**Statut : non commencé.** À ouvrir seulement après la stabilisation
+transverse ci-dessus et validation du protocole.
 
 Principes :
 
@@ -147,13 +210,23 @@ La phase doit définir avant implémentation :
 | v1 | actif | oui | n/a | référence opérationnelle |
 | `gbm_isotonic_v2` | inactive | non | non | en attente de P3 |
 
+## État des surfaces (au-delà du socle opérationnel)
+
+| Surface | Statut | Flag, défaut | Notes |
+|---|---|---|---|
+| Console scientifique | Intégré et publié ; stabilisation 4A.3 close pour ce périmètre | `SCIENCE_CONSOLE_ENABLED`, `false` | Voir §4A.3 ci-dessus |
+| Console territoriale/Client | Expérimental, pas de stabilisation dédiée à ce jour | `CLIENT_CONSOLE_ENABLED`, `false` | Dans le périmètre de la stabilisation transverse ci-dessus |
+| BLUE | Partiellement implémenté (fondation active, enrichie jusqu'à la migration `0032`) | `BLUE_CENTER_ENABLED`, `false` | Voir Phase D ci-dessous et [`docs/architecture.md#blue-forecast-evidence-center`](docs/architecture.md#blue-forecast-evidence-center) ; **insuffisant à lui seul pour déclarer une validation prospective complète** |
+| Watch | Présent dans `Unreleased`, expérimental | `WATCH_CONSOLE_ENABLED`, `false` | Implémenté (commit Watch + correctif de fraîcheur), non encore publié dans une release taguée, désactivé par défaut, nécessite la stabilisation transverse ci-dessus avant tout élargissement |
+
 ## Open-source track
 
-The scientific/product roadmap above (4A.3 → 4B → P3) and the open-source
-readiness track below are independent — open-sourcing the repository does
-not accelerate or authorize model activation, and stabilizing the console
-does not require public release. Neither track implies commitments beyond
-what's stated here; both can be reprioritized independently.
+The scientific/product roadmap above (stabilisation transverse → 4B →
+P3) and the open-source readiness track below are independent —
+open-sourcing the repository does not accelerate or authorize model
+activation, and stabilizing the consoles does not require public
+release. Neither track implies commitments beyond what's stated here;
+both can be reprioritized independently.
 
 - **Phase A — Open-source readiness** (this work): security audit,
   licensing, documentation reorganization, community files. Tracked in
@@ -166,10 +239,15 @@ what's stated here; both can be reprioritized independently.
   [`docs/public-platform.md`](docs/public-platform.md).
 - **Phase D — Prospective validation**: immutable forecast archive,
   matching against observed events, long-term evaluation. BLUE
-  implements a first partial foundation (immutable archive, bounded
-  daily +24h/+48h evidence checks); the full system — reverse matching
-  for recall/specificity and a published aggregate track record — is not
-  built yet — see
+  implements a first partial foundation — immutable `+24h`/`+48h`
+  evidence archiving, an optional AI-assisted evidence reviewer
+  (`BLUE_AI_EVIDENCE_ENABLED`, requires `OPENAI_API_KEY`), and, as of
+  migration `0032_blue_community_evidence.sql`, community/terrain-report
+  evidence levels (`community_reported`, `press_confirmed`,
+  `authority_confirmed`) with a dedicated rejection table for false
+  alarms; the full system — reverse matching for recall/specificity and
+  a published aggregate track record — is not built yet, and BLUE alone
+  does not constitute a complete prospective-validation system — see
   [`docs/scientific-limitations.md`](docs/scientific-limitations.md#prospective-validation-is-partially-implemented-not-complete).
 - **Phase E — Shadow candidate** (same content as internal **P3** above):
   the candidate receives live cases, serves no users, and is evaluated for
