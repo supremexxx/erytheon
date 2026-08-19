@@ -296,7 +296,11 @@ async fn poll_blue_evidence(config: Config, store: Store) {
     }
     let reviewer = if config.blue_ai_evidence_enabled {
         if let Some(api_key) = config.openai_api_key {
-            match BlueEvidenceReviewer::new(api_key, config.blue_openai_model) {
+            match BlueEvidenceReviewer::new(
+                api_key,
+                config.blue_openai_model,
+                config.blue_feux_de_foret_enabled,
+            ) {
                 Ok(reviewer) => Some(reviewer),
                 Err(error) => {
                     tracing::error!(%error, "BLUE automatic evidence reviewer could not start");

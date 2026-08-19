@@ -10,6 +10,8 @@ use sha2::{Digest as _, Sha256};
 use store::{BlueEvidenceClaim, BlueEvidenceResult, BlueEvidenceSourceInput};
 use unicode_normalization::{UnicodeNormalization as _, char::is_combining_mark};
 
+use crate::blue_feux_de_foret::FeuxDeForetClient;
+
 const RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
 
 #[derive(Clone)]
@@ -17,10 +19,15 @@ pub struct BlueEvidenceReviewer {
     client: Client,
     api_key: String,
     model: String,
+    feux_de_foret: Option<FeuxDeForetClient>,
 }
 
 impl BlueEvidenceReviewer {
-    pub fn new(api_key: String, model: String) -> Result<Self, BlueEvidenceError> {
+    pub fn new(
+        api_key: String,
+        model: String,
+        feux_de_foret_enabled: bool,
+    ) -> Result<Self, BlueEvidenceError> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_mins(2))
             .build()?;
@@ -28,6 +35,9 @@ impl BlueEvidenceReviewer {
             client,
             api_key,
             model,
+            feux_de_foret: feux_de_foret_enabled
+                .then(FeuxDeForetClient::new)
+                .transpose()?,
         })
     }
 
@@ -44,6 +54,15 @@ impl BlueEvidenceReviewer {
         &self,
         claim: &BlueEvidenceClaim,
     ) -> Result<BlueEvidenceResult, BlueEvidenceError> {
+        match self.review_feux_de_foret(claim).await {
+            Ok(Some(result)) => return Ok(result),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(
+                %error,
+                commune = %claim.commune_name,
+                "direct terrain lookup failed; falling back to bounded OpenAI web search"
+            ),
+        }
         let response = self
             .client
             .post(RESPONSES_URL)
@@ -62,6 +81,70 @@ impl BlueEvidenceReviewer {
         let mut result = parse_response(&body)?;
         validate_evidence_result(&mut result, claim, Utc::now())?;
         Ok(result)
+    }
+
+    async fn review_feux_de_foret(
+        &self,
+        claim: &BlueEvidenceClaim,
+    ) -> Result<Option<BlueEvidenceResult>, BlueEvidenceError> {
+        let Some(client) = &self.feux_de_foret else {
+            return Ok(None);
+        };
+        let window_end = match claim.review_horizon.as_str() {
+            "hours_24" => claim.alert_24h_valid_at,
+            "hours_48" => claim.alert_48h_valid_at,
+            _ => None,
+        };
+        let Some(window_end) = window_end else {
+            return Ok(None);
+        };
+        let Some(report) = client
+            .find_report(
+                &claim.commune_name,
+                claim.department_code.as_deref(),
+                claim.issued_at,
+                window_end,
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        let source = BlueEvidenceSourceInput {
+            url: report.url.clone(),
+            title: report.title.clone(),
+            published_at: Some(report.occurred_at),
+            excerpt: Some(format!(
+                "Signal communautaire daté concernant {}. À corroborer par une source officielle.",
+                claim.commune_name
+            )),
+            domain: "feuxdeforet.fr".to_owned(),
+            relation_strength: "direct".to_owned(),
+        };
+        let mut result = BlueEvidenceResult {
+            verdict: "probable".to_owned(),
+            confidence: 0.78,
+            summary: format!(
+                "Un signal d'incendie daté correspond à {} dans la fenêtre BLUE. La source est communautaire : le résultat reste probable jusqu'à corroboration officielle.",
+                claim.commune_name
+            ),
+            observed_event_at: Some(report.occurred_at),
+            observed_location: Some(claim.commune_name.clone()),
+            response_id: format!("feuxdeforet:{}", report.id),
+            input_tokens: None,
+            output_tokens: None,
+            web_search_count: 1,
+            sources: vec![source],
+            raw_response: json!({
+                "provider": "feuxdeforet",
+                "report_id": report.id,
+                "output": [{
+                    "type": "web_search_call",
+                    "action": {"sources": [{"url": report.url}]}
+                }]
+            }),
+        };
+        validate_evidence_result(&mut result, claim, Utc::now())?;
+        Ok(Some(result))
     }
 
     fn request_payload(&self, claim: &BlueEvidenceClaim) -> Value {
@@ -89,7 +172,7 @@ impl BlueEvidenceReviewer {
             "model": self.model,
             "tools": [{"type": "web_search"}],
             "include": ["web_search_call.action.sources"],
-            "instructions": "Tu es le vérificateur de preuves de BLUE. Tu dois obligatoirement utiliser web_search avant tout verdict positif. Recherche uniquement des traces d'incendie ou de feu de végétation dans la commune exacte et dans la fenêtre exacte qui commence à issued_at et se termine au valid_at du review_horizon demandé. Inclue le nom exact de la commune, le département, l'année et les dates de la fenêtre dans les requêtes. Ignore tout événement ancien, même célèbre, toute commune voisine et toute source qui ne date pas explicitement l'événement. Lorsqu'un trigger_observed_at est fourni, il s'agit d'une recherche réactive déclenchée par un signal thermique: cherche immédiatement une confirmation indépendante sans jamais considérer le signal seul comme un incendie. Pour hours_24, produis un constat provisoire limité aux premières 24 heures. Pour hours_48, produis le constat final couvrant les 48 heures complètes, même si une première recherche a déjà eu lieu. Privilégie les autorités, secours et presse locale établie. Ne considère jamais une absence de résultat comme la preuve qu'aucun incendie n'a eu lieu. N'invente aucune source ni URL. Chaque URL du tableau evidence doit provenir directement des résultats de web_search. Un verdict confirmed exige une source officielle directe et une concordance exacte de commune et de date. Une source de presse crédible peut au maximum produire probable. Une source inconnue, une date absente ou une localisation approximative impose inconclusive ou no_evidence_found. Tous les champs de date doivent être soit null, soit au format RFC3339 complet avec fuseau horaire, par exemple 2026-08-16T01:30:00+02:00. N'utilise jamais une date en langage naturel. Réponds en français, sobrement.",
+            "instructions": "Tu es le vérificateur de preuves de BLUE. Tu dois obligatoirement utiliser web_search avant tout verdict positif. Commence notamment par une recherche ciblée site:feuxdeforet.fr, puis cherche une corroboration auprès des autorités, secours et de la presse locale établie. Recherche uniquement des traces d'incendie ou de feu de végétation dans la commune exacte et dans la fenêtre exacte qui commence à issued_at et se termine au valid_at du review_horizon demandé. Inclue le nom exact de la commune, le département, l'année et les dates de la fenêtre dans les requêtes. Ignore tout événement ancien, même célèbre, toute commune voisine et toute source qui ne date pas explicitement l'événement. Une page intitulée fausse alerte doit toujours être rejetée. FeuxDeForet est une source communautaire qui peut au maximum produire probable, jamais confirmed. Lorsqu'un trigger_observed_at est fourni, il s'agit d'une recherche réactive déclenchée par un signal thermique: cherche immédiatement une confirmation indépendante sans jamais considérer le signal seul comme un incendie. Pour hours_24, produis un constat provisoire limité aux premières 24 heures. Pour hours_48, produis le constat final couvrant les 48 heures complètes, même si une première recherche a déjà eu lieu. Ne considère jamais une absence de résultat comme la preuve qu'aucun incendie n'a eu lieu. N'invente aucune source ni URL. Chaque URL du tableau evidence doit provenir directement des résultats de web_search. Un verdict confirmed exige une source officielle directe et une concordance exacte de commune et de date. Une source de presse crédible peut au maximum produire probable. Une source inconnue, une date absente ou une localisation approximative impose inconclusive ou no_evidence_found. Tous les champs de date doivent être soit null, soit au format RFC3339 complet avec fuseau horaire, par exemple 2026-08-16T01:30:00+02:00. N'utilise jamais une date en langage naturel. Réponds en français, sobrement.",
             "input": [{
                 "role": "user",
                 "content": format!("Vérifie ce dossier de prévision BLUE après échéance. Données du dossier: {case_data}")
@@ -355,7 +438,9 @@ fn validate_evidence_result(
         if is_authority_domain(&source.domain) {
             has_authority = true;
             has_direct_authority |= source.relation_strength == "direct";
-        } else if is_established_press_domain(&source.domain) {
+        } else if is_established_press_domain(&source.domain)
+            || is_community_signal_domain(&source.domain)
+        {
             has_established_press = true;
         } else {
             return Err(invalid_output("evidence domain is not trusted"));
@@ -489,10 +574,17 @@ fn is_established_press_domain(domain: &str) -> bool {
         .any(|trusted| domain == *trusted || domain.ends_with(&format!(".{trusted}")))
 }
 
+fn is_community_signal_domain(domain: &str) -> bool {
+    let domain = domain.to_ascii_lowercase();
+    domain == "feuxdeforet.fr" || domain.ends_with(".feuxdeforet.fr")
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum BlueEvidenceError {
     #[error("HTTP client error: {0}")]
     Http(#[from] reqwest::Error),
+    #[error("direct terrain source error: {0}")]
+    FeuxDeForet(#[from] crate::blue_feux_de_foret::FeuxDeForetError),
     #[error("invalid JSON response: {0}")]
     Json(#[from] serde_json::Error),
     #[error("OpenAI API error: {0}")]
