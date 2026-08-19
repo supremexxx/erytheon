@@ -10,6 +10,7 @@ data/
 out/
 .playwright-cli/
 output/playwright/
+/.worktrees/
 
 *.dump
 *.dump.sha256
