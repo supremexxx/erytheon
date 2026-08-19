@@ -40,6 +40,7 @@ const DEFAULT_SCIENCE_CONSOLE_ENABLED: &str = "false";
 const DEFAULT_CLIENT_CONSOLE_ENABLED: &str = "false";
 const DEFAULT_BLUE_CENTER_ENABLED: &str = "false";
 const DEFAULT_BLUE_AI_EVIDENCE_ENABLED: &str = "false";
+const DEFAULT_BLUE_FEUX_DE_FORET_ENABLED: &str = "false";
 const DEFAULT_BLUE_OPENAI_MODEL: &str = "gpt-4o-mini";
 
 #[derive(Clone, Debug)]
@@ -72,6 +73,7 @@ pub struct Config {
     pub client_console_enabled: bool,
     pub blue_center_enabled: bool,
     pub blue_ai_evidence_enabled: bool,
+    pub blue_feux_de_foret_enabled: bool,
     pub openai_api_key: Option<String>,
     pub blue_openai_model: String,
 }
@@ -147,6 +149,10 @@ impl Config {
                 "BLUE_AI_EVIDENCE_ENABLED",
                 DEFAULT_BLUE_AI_EVIDENCE_ENABLED,
             )?,
+            blue_feux_de_foret_enabled: parse_env(
+                "BLUE_FEUX_DE_FORET_ENABLED",
+                DEFAULT_BLUE_FEUX_DE_FORET_ENABLED,
+            )?,
             openai_api_key: optional_env("OPENAI_API_KEY"),
             blue_openai_model: env_or_default("BLUE_OPENAI_MODEL", DEFAULT_BLUE_OPENAI_MODEL),
         };
@@ -184,6 +190,7 @@ impl Config {
             territory_codes = ?self.territory_codes,
             territory_label = ?self.territory_label,
             blue_ai_evidence_enabled = self.blue_ai_evidence_enabled,
+            blue_feux_de_foret_enabled = self.blue_feux_de_foret_enabled,
             openai_configured = self.openai_api_key.is_some(),
             blue_openai_model = %self.blue_openai_model,
             "configuration loaded"

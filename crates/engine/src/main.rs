@@ -1,6 +1,7 @@
 mod backtest;
 mod bdiff_pipeline;
 mod blue_evidence;
+mod blue_feux_de_foret;
 mod candidate_artifact;
 mod candidate_load_verification;
 mod candidate_pipeline;
