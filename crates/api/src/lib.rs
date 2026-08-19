@@ -25,6 +25,7 @@ use tower_http::trace::TraceLayer;
 mod blue;
 mod client;
 mod science;
+mod watch;
 
 const DASHBOARD_HTML: &str = include_str!("../static/index.html");
 const DASHBOARD_CSS: &str = include_str!("../static/dashboard.css");
@@ -34,6 +35,7 @@ const MAX_ALERTS: u32 = 500;
 
 /// Shared API dependencies.
 #[derive(Clone, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct AppState {
     store: Store,
     grid: H3Grid,
@@ -44,6 +46,7 @@ pub struct AppState {
     science_console_enabled: bool,
     client_console_enabled: bool,
     blue_center_enabled: bool,
+    watch_console_enabled: bool,
 }
 
 impl AppState {
@@ -65,6 +68,7 @@ impl AppState {
             science_console_enabled: false,
             client_console_enabled: false,
             blue_center_enabled: false,
+            watch_console_enabled: false,
         }
     }
 
@@ -104,6 +108,16 @@ impl AppState {
     #[must_use]
     pub const fn with_blue_center_enabled(mut self, enabled: bool) -> Self {
         self.blue_center_enabled = enabled;
+        self
+    }
+
+    /// Enables mounting the read-only `/watch` and `/api/watch/*`
+    /// routes -- the public wildfire-risk map. Defaults to `false` for
+    /// the same reason as `with_science_console_enabled`: a deployment
+    /// gate, not real access control.
+    #[must_use]
+    pub const fn with_watch_console_enabled(mut self, enabled: bool) -> Self {
+        self.watch_console_enabled = enabled;
         self
     }
 
@@ -232,6 +246,18 @@ pub fn router(state: AppState) -> Router {
             .nest("/api/blue", blue::router());
     }
 
+    // Public wildfire-risk map: same deployment-gate rationale as the
+    // consoles above. Read-only, consumes the existing operational
+    // /risk, /risk/cell/{h3}, /sources and /config routes directly.
+    if state.watch_console_enabled {
+        router = router
+            .route("/watch", get(watch_shell))
+            .route("/watch/{*path}", get(watch_shell))
+            .route("/watch.css", get(watch_css))
+            .route("/watch.js", get(watch_js))
+            .nest("/api/watch", watch::router());
+    }
+
     router
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
@@ -313,6 +339,34 @@ async fn client_js() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=300"),
         ],
         CLIENT_JS,
+    )
+}
+
+const WATCH_HTML: &str = include_str!("../static/watch/index.html");
+const WATCH_CSS: &str = include_str!("../static/watch/watch.css");
+const WATCH_JS: &str = include_str!("../static/watch/watch.js");
+
+async fn watch_shell() -> Html<&'static str> {
+    Html(WATCH_HTML)
+}
+
+async fn watch_css() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        WATCH_CSS,
+    )
+}
+
+async fn watch_js() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        WATCH_JS,
     )
 }
 

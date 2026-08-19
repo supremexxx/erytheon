@@ -122,7 +122,7 @@ async fn commune_risk(
 
 /// Five-character French INSEE municipality code: either five digits,
 /// or `2A`/`2B` (Corsica) followed by three digits.
-fn validate_insee_code(raw: &str) -> Result<String, ApiError> {
+pub(crate) fn validate_insee_code(raw: &str) -> Result<String, ApiError> {
     let code = raw.to_uppercase();
     let valid = code.len() == 5
         && if let Some(rest) = code.strip_prefix("2A").or_else(|| code.strip_prefix("2B")) {

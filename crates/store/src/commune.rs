@@ -25,6 +25,16 @@ pub struct CommuneBoundary {
     pub bbox: BoundingBox,
 }
 
+/// One name-search match against the commune catalog. Deliberately
+/// lighter than [`CommuneBoundary`]/[`CommuneCatalogEntry`] -- no
+/// geometry is parsed or returned, so this stays cheap for autocomplete.
+#[derive(Clone, Debug)]
+pub struct CommuneSearchResult {
+    pub insee_code: String,
+    pub name: String,
+    pub department_code: Option<String>,
+}
+
 /// One versioned commune and its deterministic H3-centroid coverage.
 #[derive(Clone, Debug)]
 pub struct CommuneCatalogEntry {
@@ -171,6 +181,40 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Finds communes whose name starts with `prefix` (case-insensitive),
+    /// ordered alphabetically. Used to back name-search autocomplete;
+    /// returns no geometry, so it stays cheap regardless of catalog size.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the database operation fails.
+    pub async fn search_communes(
+        &self,
+        prefix: &str,
+        limit: i64,
+    ) -> Result<Vec<CommuneSearchResult>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT insee_code, name, department_code
+               FROM reference.commune_boundaries
+              WHERE name ILIKE $1 || '%'
+              ORDER BY name
+              LIMIT $2",
+        )
+        .bind(prefix)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(CommuneSearchResult {
+                    insee_code: row.try_get("insee_code")?,
+                    name: row.try_get("name")?,
+                    department_code: row.try_get("department_code")?,
+                })
+            })
+            .collect()
     }
 
     /// Looks up a commune boundary by INSEE code.
