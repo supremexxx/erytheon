@@ -104,8 +104,13 @@ documented decision.
 
 ## Versioning
 
-- **Software**: SemVer-ish (currently pre-1.0, e.g. `v0.4.x`), tracked by
-  Git tags. Existing tags are never moved.
+- **Software**: still pre-1.0. The latest tagged repository release is
+  `v0.5.0`, tracked by Git tags that are never moved; the Cargo
+  workspace version is a separate number (`0.1.0` as of this writing)
+  and is not kept in sync with the release tag — see
+  [`docs/project-identity.md`](project-identity.md) for how the two, and
+  model/dataset/migration versioning, actually relate. Neither number
+  moves in lockstep with a model version.
 - **Model**: named independently of software version — `human-v1`,
   `gbm-isotonic-v2` — since a model can be retrained without a software
   release and vice versa.

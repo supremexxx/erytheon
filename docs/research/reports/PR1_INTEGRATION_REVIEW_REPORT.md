@@ -11,8 +11,8 @@
 
 # ERYTHEON — Rapport de revue d’intégration de la PR #1
 
-Date de la revue : 2026-07-28  
-Mode : lecture seule  
+Date de la revue : 2026-07-28
+Mode : lecture seule
 Verdict : **BLOQUÉ** (verdict historique — voir l'avertissement ci-dessus)
 
 Ce rapport documente les vérifications réalisées sans fusion, réécriture
