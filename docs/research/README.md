@@ -20,6 +20,12 @@ archive is for people who want the full derivation.
 - **`reports/`** — standalone design and audit documents referenced by one
   or more phases (dataset specifications, model calibration, console
   architecture, UI style guides, negative-sampling design, etc.).
+  - **Historical integration audits** — point-in-time reviews of a
+    specific pull request or deployment, e.g.
+    [`PR1_INTEGRATION_REVIEW_REPORT.md`](reports/PR1_INTEGRATION_REVIEW_REPORT.md)
+    (2026-07-28, read-only review of PR #1's state that day). Their
+    verdicts describe the reviewed commit at the time, not the current
+    state of `main` — see each document's own header note.
 
 Some documents describe infrastructure or deployment details for a specific
 private VPS; where those details were not relevant to reproducing the
