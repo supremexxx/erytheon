@@ -206,3 +206,35 @@ body {
     overflow-x: auto;
   }
 }
+
+.cli-disclaimer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.6rem 1.25rem;
+  background: var(--cli-bg);
+  border-top: 1px solid var(--cli-border);
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--cli-muted);
+}
+
+.cli-disclaimer strong {
+  color: var(--cli-ink);
+}
+
+.cli-disclaimer-mark {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.4px solid var(--cli-muted);
+  color: var(--cli-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.05rem;
+}
