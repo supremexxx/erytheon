@@ -134,6 +134,14 @@ foundation** — not a mockup — but it is a **partial** one:
   on) to archive `+24h`/`+48h` forecast snapshots as an immutable record,
   before the outcome is known — the basic precondition for any honest
   prospective validation.
+- **Requires an active v1 human model**: `capture_blue_daily_bulletin`
+  (`crates/store/src/blue.rs`) refuses to publish a bulletin with a
+  `"no active BLUE model"` error if `ml.human_model_versions` has no
+  active row. A deployment running purely on the heuristic fallback
+  (no learned model ever trained/activated) will never produce a BLUE
+  bulletin, even with `BLUE_CENTER_ENABLED=true` and real forecast data
+  flowing — confirmed by running the full pipeline locally with real
+  data and no active model.
 - **AI-assisted evidence, when actually configured**: a second flag,
   `BLUE_AI_EVIDENCE_ENABLED` (default `false`), turns on an OpenAI-backed
   automatic evidence reviewer (`crates/engine/src/scheduler.rs`) that
