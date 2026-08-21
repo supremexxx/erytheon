@@ -64,3 +64,16 @@
 @media(max-width:1280px){.ground-truth-summary{grid-template-columns:repeat(3,1fr)}.ground-truth-summary article:nth-child(4){border-left:0}}
 @media(max-width:760px){.ground-truth-summary{grid-template-columns:repeat(2,1fr)}.ground-truth-summary article:nth-child(3){border-left:0}.ground-truth-summary article:nth-child(4){border-left:1px solid var(--line)}}
 @media print{.printing-performance .app-shell{height:auto;display:block;background:#fff!important}.printing-performance .masthead,.printing-performance .workspace,.printing-performance .stats-view,.printing-performance .export-pdf,.printing-performance .error{display:none!important}.printing-performance .performance-view{display:block!important;overflow:visible;padding:0;background:#fff!important;color:#17181c!important}.printing-performance .stats-head{padding:0 0 5mm;border-bottom:1px solid #d9dbe0}.printing-performance .stats-head>div>span,.printing-performance .stats-head p,.printing-performance .performance-banner p,.printing-performance .performance-kpis span,.printing-performance .performance-kpis small,.printing-performance .performance-grid p,.printing-performance .limits-panel li,.printing-performance .stats-notes{color:#626670!important}.printing-performance .performance-banner,.printing-performance .horizon-performance>article,.printing-performance .topk-panel,.printing-performance .limits-panel,.printing-performance .history-panel{break-inside:avoid;border-color:#d9dbe0;background:#fff!important}.printing-performance .performance-banner{margin-top:4mm}.printing-performance .horizon-performance{gap:3mm;margin-top:3mm}.printing-performance .performance-kpis>div,.printing-performance .performance-banner dl div,.printing-performance .horizon-performance>article>header,.printing-performance .topk-panel th,.printing-performance .topk-panel td{border-color:#d9dbe0}.printing-performance .performance-grid{grid-template-columns:1.25fr .75fr;gap:3mm;margin-top:3mm}.printing-performance .history-panel{margin-top:3mm}.printing-performance .forecast-table-wrap{overflow:visible;background:#fff}.printing-performance .performance-history{min-width:0;color:#17181c}.printing-performance .performance-history th{position:static;background:#f0f1f3!important;color:#555963}.printing-performance .performance-history td:last-child,.printing-performance .performance-history th:last-child{display:none}.printing-performance .stats-notes>time{display:block}}
+
+/* Keep the mobile shell bounded by the viewport. Without these explicit
+   constraints, the masthead's multi-row controls contribute their desktop
+   min-content width to the page and stretch every BLUE view horizontally. */
+@media(max-width:760px){
+  .app-shell,.masthead,.workspace{width:100%;min-width:0;max-width:100vw}
+  .tools{min-width:0;flex-wrap:wrap}
+  .view-switch{width:auto;min-width:0;flex:0 0 100%}
+  .search{min-width:0}
+  .case-identity{grid-template-columns:minmax(0,auto) minmax(0,1fr)}
+  .case-identity>div{min-width:0}
+  .case-identity h1{overflow-wrap:anywhere}
+}
