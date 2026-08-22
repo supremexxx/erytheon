@@ -26,6 +26,10 @@ fi
 
 rsync -az \
   -e "ssh ${ssh_options[*]}" \
+  --no-owner \
+  --no-group \
+  --no-perms \
+  --chmod='Du=rwx,Dgo=rx,Fu=rw,Fgo=r,a+X' \
   --exclude '.env' \
   --exclude '.git' \
   --exclude '.playwright-cli' \
@@ -67,6 +71,9 @@ set_env_file_value() {
     END { if (!replaced) print key "=" replacement }
   ' "${env_file}" >"${temporary}"
   chmod --reference="${env_file}" "${temporary}"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    chown --reference="${env_file}" "${temporary}"
+  fi
   mv -- "${temporary}" "${env_file}"
 }
 
